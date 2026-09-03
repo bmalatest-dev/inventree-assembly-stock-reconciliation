@@ -363,7 +363,10 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Nominal Expected Consumption", value: fmt(itemPreview.nominal_expected_consumption) }),
         h(SummaryStat, { label: "Planned Spillage / Overage", value: fmt(itemPreview.planned_spillage_allowance) }),
         h(SummaryStat, { label: "Maximum Acceptable Consumption", value: fmt(itemPreview.acceptable_consumption_max) }),
-        h(SummaryStat, { label: "Additional Allocation on Commit", value: fmt(itemPreview.additional_allocation_required) }),
+        h(SummaryStat, { label: "Planned JIT Allocation on Commit", value: fmt(itemPreview.planned_jit_allocation_required) }),
+        h(SummaryStat, { label: "Exception Allocation on Override", value: fmt(itemPreview.exception_allocation_required) }),
+        h(SummaryStat, { label: "Planned Spillage Used", value: fmt(itemPreview.planned_spillage_consumed) }),
+        h(SummaryStat, { label: "Exception Quantity", value: fmt(itemPreview.exception_consumed) }),
         h(SummaryStat, { label: "Expected Return Range", value: `${fmt(itemPreview.expected_return_min)} to ${fmt(itemPreview.expected_return_max)}` }),
         h(SummaryStat, { label: "Policy Result", value: String(itemPreview.policy_classification || "—").replaceAll("_", " ") }),
         h(SummaryStat, { label: "Effective Policy Price", value: Number(itemPreview.effective_price || 0) > 0 ? fmt(itemPreview.effective_price) : "Missing / zero" }),
@@ -387,7 +390,8 @@ function ReconciliationPanel({ context }) {
                   h("th", { style: styles.th }, "Order"),
                   h("th", { style: styles.th }, "Build Order"),
                   h("th", { style: styles.th }, "Existing Allocation"),
-                  h("th", { style: styles.th }, "Add on Commit"),
+                  h("th", { style: styles.th }, "Planned JIT"),
+                  h("th", { style: styles.th }, "Exception Allocation"),
                   h("th", { style: styles.th }, "Consume")
                 )
               ),
@@ -397,7 +401,8 @@ function ReconciliationPanel({ context }) {
                     h("td", { style: styles.td }, i + 1),
                     h("td", { style: styles.td }, line.build_reference),
                     h("td", { style: styles.td }, fmt(line.allocated)),
-                    h("td", { style: styles.td }, fmt(line.additional_allocation_required)),
+                    h("td", { style: styles.td }, fmt(line.planned_jit_allocation_required)),
+                    h("td", { style: styles.td }, fmt(line.exception_allocation_required)),
                     h("td", { style: styles.td }, fmt(line.consume))
                   )
                 )
@@ -418,7 +423,7 @@ function ReconciliationPanel({ context }) {
         ? h("div", { style: { ...styles.alertWarn, marginTop: "14px" } },
             h("strong", null, "HARD WARNING — investigation and explicit approval required"),
             h("p", null,
-              "Actual consumption falls outside the nominal-to-planned-spillage range. Do not override until the manufacturing discrepancy has been investigated."
+              "Actual consumption falls outside the nominal-to-planned-spillage range. Planned spillage and exception quantity are shown separately. Do not override until the manufacturing discrepancy has been investigated."
             ),
             h("label", { style: { display: "flex", gap: "8px", alignItems: "flex-start", marginBottom: "10px" } },
               h("input", {
@@ -482,7 +487,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.2"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.3"}`
     )
   );
 }

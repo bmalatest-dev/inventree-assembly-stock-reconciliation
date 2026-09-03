@@ -138,6 +138,67 @@ def aggregate_allocation_policy(lines, spillage_per_project):
     }
 
 
+
+def distribute_consumption_by_policy(project_details, actual_consumption):
+    """Distribute consumption in deterministic BO order using policy layers.
+
+    Order of attribution:
+      1. Nominal requirement for each selected BO, in BO order.
+      2. Planned spillage allowance for each selected BO, in BO order.
+      3. Exception consumption above all planned allowances, in BO order.
+
+    This prevents an above-spillage exception from being dumped onto the first BO
+    before the other selected BOs receive their own nominal / planned allowance.
+    """
+    details = [dict(x) for x in project_details]
+    details.sort(key=lambda x: (int(x.get("build", 0)), int(x.get("build_line", 0))))
+
+    remaining = max(D(0), dec(actual_consumption))
+    rows = []
+
+    for raw in details:
+        nominal = max(D(0), dec(raw.get("nominal_expected_from_selected_stock")))
+        planned_max = max(nominal, dec(raw.get("acceptable_consumption_max")))
+        rows.append({
+            **raw,
+            "nominal_capacity": nominal,
+            "spillage_capacity": max(D(0), planned_max - nominal),
+            "nominal_consumed": D(0),
+            "spillage_consumed": D(0),
+            "exception_consumed": D(0),
+        })
+
+    # Phase 1: satisfy nominal consumption across all selected BOs first.
+    for row in rows:
+        if remaining <= 0:
+            break
+        qty = min(remaining, row["nominal_capacity"])
+        row["nominal_consumed"] = qty
+        remaining -= qty
+
+    # Phase 2: use planned spillage only after nominal attribution is complete.
+    for row in rows:
+        if remaining <= 0:
+            break
+        qty = min(remaining, row["spillage_capacity"])
+        row["spillage_consumed"] = qty
+        remaining -= qty
+
+    # Phase 3: anything else is explicit exception consumption.
+    for row in rows:
+        if remaining <= 0:
+            break
+        row["exception_consumed"] += remaining
+        remaining = D(0)
+
+    for row in rows:
+        row["planned_consumption"] = row["nominal_consumed"] + row["spillage_consumed"]
+        row["total_consumption"] = row["planned_consumption"] + row["exception_consumed"]
+
+    return rows
+
+
+
 def evaluate_policy(*, current_quantity, returned_quantity, selected_allocation,
                     nominal_expected, acceptable_max):
     """Classify a reconciliation against nominal requirement and spillage policy.

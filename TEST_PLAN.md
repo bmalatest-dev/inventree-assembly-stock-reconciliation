@@ -228,3 +228,52 @@ With blank Part Pricing and blank IC footprints:
 - Blank / zero stock price -> missing-price fallback 5
 
 Verify the UI shows the selected price source for every case.
+
+
+## Phase L — v0.3.3 multi-BO exception attribution
+
+Use the $10 active test part with BO-0013 and BO-0014 selected.
+
+### L1 — combined planned maximum
+
+```text
+Current stock: 300
+BO-0013 nominal: 10
+BO-0014 nominal: 10
+Spillage per BO: 5
+Returned: 270
+Actual consumption: 30
+```
+
+Expected:
+
+```text
+BO-0013 consume 15
+BO-0014 consume 15
+Exception quantity 0
+```
+
+### L2 — one unit above combined allowance
+
+```text
+Returned: 269
+Actual consumption: 31
+```
+
+Expected:
+
+```text
+BO-0013 consume 16 = nominal 10 + planned spillage 5 + exception 1
+BO-0014 consume 15 = nominal 10 + planned spillage 5
+Planned spillage used: 10
+Exception quantity: 1
+HARD WARNING
+```
+
+The UI must not describe the exception unit as approved spillage.
+
+### L3 — Stock Tracking formatting
+
+Commit only in a disposable override test. Verify all whole-number quantities are
+shown without trailing `.00000`. Verify planned JIT allocation and exception
+allocation are recorded separately.

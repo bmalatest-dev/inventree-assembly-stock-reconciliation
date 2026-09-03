@@ -12,6 +12,7 @@ spillage_per_project = _POLICY.spillage_per_project
 evaluate_policy = _POLICY.evaluate_policy
 aggregate_allocation_policy = _POLICY.aggregate_allocation_policy
 select_effective_price = _POLICY.select_effective_price
+distribute_consumption_by_policy = _POLICY.distribute_consumption_by_policy
 
 D = Decimal
 
@@ -176,6 +177,72 @@ class MultiBuildPolicyTests(unittest.TestCase):
         result = select_effective_price(D("0"), D("0"))
         self.assertEqual(result["effective_price"], D("0"))
         self.assertEqual(result["price_source"], "missing_price_fallback")
+
+
+class DistributionPolicyTests(unittest.TestCase):
+    def test_multi_bo_above_spillage_distributes_planned_first(self):
+        details = [
+            {
+                "build": 13, "build_line": 130,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+            {
+                "build": 14, "build_line": 140,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+        ]
+        result = distribute_consumption_by_policy(details, D("31"))
+        self.assertEqual(result[0]["nominal_consumed"], D("10"))
+        self.assertEqual(result[1]["nominal_consumed"], D("10"))
+        self.assertEqual(result[0]["spillage_consumed"], D("5"))
+        self.assertEqual(result[1]["spillage_consumed"], D("5"))
+        self.assertEqual(result[0]["exception_consumed"], D("1"))
+        self.assertEqual(result[1]["exception_consumed"], D("0"))
+        self.assertEqual(result[0]["total_consumption"], D("16"))
+        self.assertEqual(result[1]["total_consumption"], D("15"))
+
+    def test_exact_nominal_consumes_nominal_across_bos_before_spillage(self):
+        details = [
+            {
+                "build": 13, "build_line": 130,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+            {
+                "build": 14, "build_line": 140,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+        ]
+        result = distribute_consumption_by_policy(details, D("20"))
+        self.assertEqual(result[0]["total_consumption"], D("10"))
+        self.assertEqual(result[1]["total_consumption"], D("10"))
+        self.assertEqual(result[0]["spillage_consumed"], D("0"))
+        self.assertEqual(result[1]["spillage_consumed"], D("0"))
+
+    def test_within_spillage_uses_each_bo_allowance_in_order(self):
+        details = [
+            {
+                "build": 13, "build_line": 130,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+            {
+                "build": 14, "build_line": 140,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("15"),
+            },
+        ]
+        result = distribute_consumption_by_policy(details, D("27"))
+        self.assertEqual(result[0]["total_consumption"], D("15"))
+        self.assertEqual(result[1]["total_consumption"], D("12"))
+        self.assertEqual(result[0]["spillage_consumed"], D("5"))
+        self.assertEqual(result[1]["spillage_consumed"], D("2"))
+        self.assertEqual(result[0]["exception_consumed"], D("0"))
+        self.assertEqual(result[1]["exception_consumed"], D("0"))
+
 
 if __name__ == '__main__':
     unittest.main()
