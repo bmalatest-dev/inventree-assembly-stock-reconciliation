@@ -79,10 +79,13 @@ class ReconciliationPolicyTests(unittest.TestCase):
         self.assertTrue(r["hard_warning"])
         self.assertEqual(r["policy_classification"], "above_spillage_allowance")
 
-    def test_consumption_over_selected_allocation_blocks(self):
+    def test_consumption_above_policy_max_warns_even_if_jit_may_be_possible(self):
+        # Existing allocation is no longer the policy ceiling in v0.3.1; the live
+        # plugin separately verifies whether extra StockItem allocation can be made.
         r = self.evaluate(returned=5, nominal=80, maximum=90, allocated=90)  # consume 95
-        self.assertTrue(r["blocking_error"])
-        self.assertEqual(r["policy_classification"], "consumption_exceeds_allocation")
+        self.assertFalse(r["blocking_error"])
+        self.assertTrue(r["hard_warning"])
+        self.assertEqual(r["policy_classification"], "above_spillage_allowance")
 
     def test_return_exceeds_current_stock_blocks(self):
         r = self.evaluate(returned=101)
@@ -109,7 +112,7 @@ class MultiBuildPolicyTests(unittest.TestCase):
             {"build_reference": "BO-0012", "allocated": 30, "required": 30, "consumed": 0},
         ], 5)
         self.assertEqual(limits["nominal_expected_consumption"], D(90))
-        self.assertEqual(limits["acceptable_consumption_max"], D(90))
+        self.assertEqual(limits["acceptable_consumption_max"], D(100))
         result = evaluate_policy(
             current_quantity=100, returned_quantity=25, selected_allocation=90,
             nominal_expected=limits["nominal_expected_consumption"],
@@ -126,7 +129,7 @@ class MultiBuildPolicyTests(unittest.TestCase):
             {"build_reference": "BO-B", "allocated": 32, "required": 30, "consumed": 0},
         ], 5)
         self.assertEqual(limits["nominal_expected_consumption"], D(90))
-        self.assertEqual(limits["acceptable_consumption_max"], D(97))
+        self.assertEqual(limits["acceptable_consumption_max"], D(100))
         result = evaluate_policy(
             current_quantity=100, returned_quantity=5, selected_allocation=97,
             nominal_expected=90, acceptable_max=97,
@@ -140,8 +143,9 @@ class MultiBuildPolicyTests(unittest.TestCase):
             {"build_reference": "BO-0010", "allocated": 51, "required": 75, "consumed": 24},
         ], 5)
         self.assertEqual(limits["nominal_expected_consumption"], D(51))
-        # No allocation remains beyond nominal, so the mechanical allocation ceiling is 51.
-        self.assertEqual(limits["acceptable_consumption_max"], D(51))
+        # v0.3.1 retains the unused planned spillage allowance even though operators
+        # normally allocate only the remaining nominal requirement.
+        self.assertEqual(limits["acceptable_consumption_max"], D(56))
 
     def test_prior_over_nominal_consumption_uses_spillage_allowance(self):
         limits = aggregate_allocation_policy([
@@ -156,3 +160,20 @@ class MultiBuildPolicyTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestJITPolicy(unittest.TestCase):
+    def test_normal_allocation_does_not_cap_spillage_policy(self):
+        result = aggregate_allocation_policy([{
+            "build": 14, "build_line": 140, "allocated": D("10"),
+            "required": D("10"), "consumed": D("0")
+        }], D("2"))
+        self.assertEqual(result["nominal_expected_consumption"], D("10"))
+        self.assertEqual(result["acceptable_consumption_max"], D("12"))
+
+    def test_within_spillage_can_exceed_existing_allocation(self):
+        result = evaluate_policy(current_quantity=D("300"), returned_quantity=D("288"),
+            selected_allocation=D("10"), nominal_expected=D("10"), acceptable_max=D("12"))
+        self.assertFalse(result["blocking_error"])
+        self.assertFalse(result["hard_warning"])
+        self.assertEqual(result["policy_classification"], "within_spillage")

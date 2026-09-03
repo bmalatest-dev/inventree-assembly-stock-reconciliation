@@ -24,6 +24,14 @@ def dec(value, default="0") -> Decimal:
     except Exception:
         return D(default)
 
+def fmt_decimal(value) -> str:
+    """Display decimals without unnecessary trailing zeroes."""
+    value = dec(value)
+    if value == value.to_integral():
+        return str(value.quantize(D("1")))
+    return format(value.normalize(), "f")
+
+
 
 def normalize_footprint(value: str) -> str:
     """Normalize package text to the footprint tokens used by the legacy engine."""
@@ -89,7 +97,8 @@ def aggregate_allocation_policy(lines, spillage_per_project):
         selected_nominal = min(allocated, nominal_remaining)
         already_used_spillage = max(D(0), consumed - required)
         spill_remaining = max(D(0), spill - already_used_spillage)
-        selected_max = min(allocated, nominal_remaining + spill_remaining)
+        # Planned spillage is a policy allowance, not a pre-allocation requirement.
+        selected_max = selected_nominal + spill_remaining
 
         nominal_total += selected_nominal
         acceptable_total += selected_max
@@ -148,31 +157,24 @@ def evaluate_policy(*, current_quantity, returned_quantity, selected_allocation,
             "Physical returned quantity exceeds the current InvenTree quantity. "
             "Investigate the stock item, prior reconciliation, or returned quantity."
         )
-    elif consume > allocated:
-        blocking = True
-        classification = "consumption_exceeds_allocation"
-        messages.append(
-            f"Calculated consumption ({consume}) exceeds selected allocations ({allocated}). "
-            "Select additional relevant Build Orders or investigate."
-        )
     elif consume < nominal:
         warning = True
         classification = "below_nominal"
         messages.append(
-            f"Calculated consumption ({consume}) is below the nominal expected consumption "
-            f"({nominal}). Physical return is higher than expected; investigate before approval."
+            f"Calculated consumption ({fmt_decimal(consume)}) is below the nominal expected consumption "
+            f"({fmt_decimal(nominal)}). Physical return is higher than expected; investigate before approval."
         )
     elif consume > maximum:
         warning = True
         classification = "above_spillage_allowance"
         messages.append(
-            f"Calculated consumption ({consume}) exceeds the planned consumption ceiling "
-            f"({maximum}), including approved spillage / overage. Investigate before approval."
+            f"Calculated consumption ({fmt_decimal(consume)}) exceeds the planned consumption ceiling "
+            f"({fmt_decimal(maximum)}), including approved spillage / overage. Investigate before approval."
         )
     elif consume > nominal:
         classification = "within_spillage"
         messages.append(
-            f"Calculated consumption includes {consume - nominal} of planned spillage / overage "
+            f"Calculated consumption includes {fmt_decimal(consume - nominal)} of planned spillage / overage "
             "and remains within the approved allowance."
         )
     elif consume == 0 and nominal == 0:

@@ -208,3 +208,11 @@ The legacy estimating script can suppress spillage for parts listed in an extern
 The live v0.3.0 plugin does **not** read that external planning CSV.
 
 Before production deployment, decide whether those exceptions still need to be operationally enforced. If yes, they should be represented inside InvenTree (for example via a Part parameter or plugin configuration) and covered by this test plan.
+
+
+## v0.3.1 JIT allocation tests
+
+- Normal workflow: requirement 10, allocation 10, allowance 2, consumption 12 -> preview PASS; add 2 on commit.
+- Extra StockItem allocation capacity unavailable -> BLOCK.
+- Above planned spillage -> HARD WARNING and override; override reason and JIT allocation are recorded.
+- Confirm Stock Tracking contains `JIT Allocation Added`.

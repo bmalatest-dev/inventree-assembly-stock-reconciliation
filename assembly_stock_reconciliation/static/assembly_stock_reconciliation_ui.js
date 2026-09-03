@@ -358,7 +358,9 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Selected Allocations", value: fmt(itemPreview.selected_allocation_quantity) }),
         h(SummaryStat, { label: "Calculated Consumption", value: fmt(itemPreview.calculated_consumption) }),
         h(SummaryStat, { label: "Nominal Expected Consumption", value: fmt(itemPreview.nominal_expected_consumption) }),
-        h(SummaryStat, { label: "Planned Consumption Max", value: fmt(itemPreview.acceptable_consumption_max) }),
+        h(SummaryStat, { label: "Planned Spillage / Overage", value: fmt(itemPreview.planned_spillage_allowance) }),
+        h(SummaryStat, { label: "Maximum Acceptable Consumption", value: fmt(itemPreview.acceptable_consumption_max) }),
+        h(SummaryStat, { label: "Additional Allocation on Commit", value: fmt(itemPreview.additional_allocation_required) }),
         h(SummaryStat, { label: "Expected Return Range", value: `${fmt(itemPreview.expected_return_min)} to ${fmt(itemPreview.expected_return_max)}` }),
         h(SummaryStat, { label: "Policy Result", value: String(itemPreview.policy_classification || "—").replaceAll("_", " ") })
       ),
@@ -378,7 +380,8 @@ function ReconciliationPanel({ context }) {
                 h("tr", null,
                   h("th", { style: styles.th }, "Order"),
                   h("th", { style: styles.th }, "Build Order"),
-                  h("th", { style: styles.th }, "Allocated"),
+                  h("th", { style: styles.th }, "Existing Allocation"),
+                  h("th", { style: styles.th }, "Add on Commit"),
                   h("th", { style: styles.th }, "Consume")
                 )
               ),
@@ -388,6 +391,7 @@ function ReconciliationPanel({ context }) {
                     h("td", { style: styles.td }, i + 1),
                     h("td", { style: styles.td }, line.build_reference),
                     h("td", { style: styles.td }, fmt(line.allocated)),
+                    h("td", { style: styles.td }, fmt(line.additional_allocation_required)),
                     h("td", { style: styles.td }, fmt(line.consume))
                   )
                 )
@@ -472,7 +476,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.0"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.1"}`
     )
   );
 }

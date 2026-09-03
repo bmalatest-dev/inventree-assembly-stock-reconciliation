@@ -12,7 +12,7 @@ from plugin.mixins import ActionMixin, UserInterfaceMixin
 from build.models import Build, BuildItem
 from stock.models import StockItem
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal
 
 
 D = decimal.Decimal
@@ -29,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.3.0"
+    VERSION = "0.3.1"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -235,6 +235,19 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "spillage_rule": rule,
         }
 
+    @staticmethod
+    def _extra_allocation_capacity(stock):
+        """Free quantity which InvenTree can still allocate from this StockItem."""
+        try:
+            build_allocated = D(str(stock.build_allocation_count()))
+        except Exception:
+            build_allocated = D("0")
+        try:
+            sales_allocated = D(str(stock.sales_order_allocation_count()))
+        except Exception:
+            sales_allocated = D("0")
+        return max(D("0"), D(str(stock.quantity)) - build_allocated - sales_allocated)
+
     def _policy_for_allocations(self, stock, allocations):
         """Calculate nominal and spillage limits for selected allocations.
 
@@ -435,24 +448,67 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         messages.extend(evaluation["messages"])
         positive_consume = evaluation["calculated_consumption"]
 
+        additional_required = max(D("0"), positive_consume - total_allocated)
+        extra_capacity = self._extra_allocation_capacity(stock)
+        if additional_required > extra_capacity:
+            blocking_error = True
+            messages.append(
+                f"Reconciliation requires {fmt_decimal(additional_required)} of additional stock allocation, "
+                f"but only {fmt_decimal(extra_capacity)} is currently unallocated on this Stock Item."
+            )
+
+        allocations_by_line = defaultdict(list)
+        for allocation in sorted(allocations, key=lambda a: (a.build_line.build_id, a.pk)):
+            allocations_by_line[allocation.build_line_id].append(allocation)
+        detail_by_line = {int(x["build_line"]): x for x in policy["project_details"]}
+
         plan = []
         remaining = positive_consume
-        for allocation in sorted(
-            allocations,
-            key=lambda a: (a.build_line.build_id, a.pk),
-        ):
+        for line_id, detail in sorted(detail_by_line.items(), key=lambda x: (int(x[1]["build"]), x[0])):
             if remaining <= 0:
                 break
-            q = min(D(str(allocation.quantity)), remaining)
-            if q > 0:
-                plan.append({
-                    "build_item": allocation.pk,
-                    "build": allocation.build_line.build_id,
-                    "build_reference": allocation.build_line.build.reference,
-                    "allocated": str(allocation.quantity),
-                    "consume": str(q),
-                })
-                remaining -= q
+            line_allocations = allocations_by_line.get(line_id, [])
+            if not line_allocations:
+                continue
+            existing_total = sum((D(str(a.quantity)) for a in line_allocations), D("0"))
+            planned_max = D(str(detail["acceptable_consumption_max"]))
+            line_capacity = max(existing_total, planned_max)
+            line_consume = min(remaining, line_capacity)
+            if evaluation["policy_classification"] == "above_spillage_allowance":
+                line_consume = remaining
+
+            left = line_consume
+            for idx, allocation in enumerate(line_allocations):
+                if left <= 0:
+                    break
+                existing = D(str(allocation.quantity))
+                amount = min(existing, left)
+                extra = D("0")
+                if idx == len(line_allocations) - 1 and left > existing:
+                    extra = left - existing
+                    amount = left
+                if amount > 0:
+                    plan.append({
+                        "build_item": allocation.pk,
+                        "build_line": line_id,
+                        "build": allocation.build_line.build_id,
+                        "build_reference": allocation.build_line.build.reference,
+                        "allocated": str(existing),
+                        "additional_allocation_required": str(extra),
+                        "allocated_after_commit": str(existing + extra),
+                        "consume": str(amount),
+                    })
+                    left -= amount
+            remaining -= line_consume
+
+        if remaining > 0 and not blocking_error:
+            blocking_error = True
+            messages.append(f"Unable to attribute {fmt_decimal(remaining)} of calculated consumption to the selected Build Orders.")
+        if additional_required > 0 and not blocking_error:
+            messages.append(
+                f"Commit will create {fmt_decimal(additional_required)} of just-in-time Build Order allocation "
+                "to record approved spillage / overage."
+            )
 
         return {
             "stock_item": stock.pk,
@@ -465,7 +521,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "calculated_consumption": str(positive_consume),
             "nominal_expected_consumption": str(policy["nominal_expected_consumption"]),
             "planned_spillage_per_project": str(policy["spillage_per_project"]),
+            "planned_spillage_allowance": str(max(D("0"), policy["acceptable_consumption_max"] - policy["nominal_expected_consumption"])),
             "acceptable_consumption_max": str(policy["acceptable_consumption_max"]),
+            "additional_allocation_required": str(additional_required),
+            "extra_allocation_capacity": str(extra_capacity),
             "expected_return_min": str(evaluation["expected_return_min"]),
             "expected_return_max": str(evaluation["expected_return_max"]),
             "policy_classification": evaluation["policy_classification"],
@@ -490,7 +549,14 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
 
         grouped = defaultdict(dict)
         for line in preview["consumption_plan"]:
-            grouped[line["build"]][line["build_item"]] = D(line["consume"])
+            build_item_id = line["build_item"]
+            extra = D(str(line.get("additional_allocation_required", "0")))
+            if extra > 0:
+                allocation = BuildItem.objects.select_for_update().get(pk=build_item_id)
+                allocation.quantity = D(str(allocation.quantity)) + extra
+                allocation.check_allocated_quantity(raise_error=True)
+                allocation.save()
+            grouped[line["build"]][build_item_id] = D(line["consume"])
 
         # Build a detailed audit note for each stock-tracking entry. Each call to
         # complete_allocations() is scoped to one Build Order, so record both the
@@ -518,6 +584,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 f'Planned Max: {preview.get("acceptable_consumption_max", "")}',
                 f'Policy: {preview.get("policy_classification", "")}',
                 f'Spillage Rule: {preview.get("spillage_rule", "")}',
+                f'JIT Allocation Added: {sum((D(str(x.get("additional_allocation_required", "0"))) for x in preview["consumption_plan"] if x["build"] == build_id), D("0"))}',
                 f"This BO Consumed: {this_build_consumption}",
                 f"Selected BOs: {selected_bos}",
                 f"Consumption Order: {allocation_breakdown}",

@@ -1,6 +1,12 @@
+# v0.3.1 — Just-in-time spillage allocation
+
+Operators continue allocating only the normal BOM requirement. If previewed physical consumption is above the existing BO allocation but within planned spillage / overage, the plugin shows the extra allocation required and creates it only on commit, inside the same transaction as native InvenTree consumption.
+
+The review UI now shows nominal expected consumption, planned spillage / overage, maximum acceptable consumption, and additional allocation on commit. Whole-number quantities are displayed without trailing decimal zeroes.
+
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.3.0` (manufacturing-policy test release)
+Version: `0.3.1` (manufacturing-policy test release)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -34,9 +40,9 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 - Do not raise the allocation-based over-return warning for that zero-consumption case.
 - Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
 
-## 0.3.0 manufacturing policy: nominal consumption + spillage / overage
+## 0.3.1 manufacturing policy: nominal consumption + spillage / overage
 
-Version 0.3.0 adds the manufacturing-policy layer recovered from the existing
+Version 0.3.1 adds the manufacturing-policy layer recovered from the existing
 estimating-allocation scripts.
 
 ### Reused spillage engine
@@ -113,7 +119,7 @@ python -m unittest discover -s tests -v
 ### Current limitation
 
 The legacy estimating script also supports an optional external `ignore-spillage.csv` list.
-Version 0.3.0 does not import that external CSV into the live plugin. The core footprint / price
+Version 0.3.1 does not import that external CSV into the live plugin. The core footprint / price
 engine is reused exactly; if the ignore-spillage exception list is still operationally required,
 it should be represented in InvenTree itself (for example as a Part parameter or plugin setting)
 in a follow-on release rather than depending on an external planning CSV.
@@ -336,7 +342,7 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.3.0
+Tag: v0.3.1
 Title: Assembly Stock Reconciliation V1 UI
 ```
 
@@ -368,7 +374,7 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.3.0
+Version: 0.3.1
 ```
 
 ## Stock tracking audit trail
