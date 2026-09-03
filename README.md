@@ -1,6 +1,6 @@
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.2.0` (V1 UI release)
+Version: `0.2.1` (V1 UI bug-fix release)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -34,6 +34,38 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 - Do not raise the allocation-based over-return warning for that zero-consumption case.
 - Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
 
+## 0.2.1 reconciliation validation fix
+
+Version 0.2.1 corrects the validation rule used by the operator UI and backend.
+
+The plugin no longer compares the physical returned quantity directly with the
+remaining Build Order allocation. That comparison is not valid after prior
+partial reconciliations, because returned stock can legitimately be greater
+than the remaining BO allocation.
+
+The reconciliation rule is now:
+
+```text
+calculated_consumption = current_stock_quantity - physical_returned_quantity
+```
+
+A reconciliation is valid only when:
+
+```text
+calculated_consumption >= 0
+calculated_consumption <= total remaining allocation on selected Build Orders
+```
+
+If the returned quantity exceeds the current InvenTree stock quantity, the
+reconciliation is blocked for investigation.
+
+If calculated consumption exceeds the selected remaining allocations, the
+reconciliation is blocked and the operator must select additional relevant
+Build Orders or investigate.
+
+A direct `returned_quantity > selected_allocation_quantity` comparison no
+longer generates a hard warning.
+
 ## 0.2.0 user interface
 
 Version 0.2.0 adds a native Stock Item panel using InvenTree's `UserInterfaceMixin`.
@@ -48,8 +80,8 @@ From a Stock Item page, the operator can:
 - Preview the reconciliation before any stock changes occur.
 - Review the deterministic BO-order consumption plan.
 - Commit a normal reconciliation.
-- Receive a prominent HARD WARNING when an over-return discrepancy is detected.
-- Explicitly acknowledge and document an override reason before an override commit.
+- Receive blocking validation when calculated consumption cannot be reconciled to the selected BO allocations.
+- Retain the explicit override framework for future discrepancy rules which are based on independently tracked quantities sent to assembly.
 - Refresh the panel after commit while InvenTree retains the native Stock Tracking audit trail.
 
 The raw `/api/action/` interface remains available for testing and automation.
@@ -220,7 +252,7 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.2.0
+Tag: v0.2.1
 Title: Assembly Stock Reconciliation V1 UI
 ```
 
@@ -252,7 +284,7 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.2.0
+Version: 0.2.1
 ```
 
 ## Stock tracking audit trail

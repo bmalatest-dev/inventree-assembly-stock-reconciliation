@@ -27,7 +27,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.2.0"
+    VERSION = "0.2.1"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -96,9 +96,9 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 "committed": False,
                 "override_required": True,
                 "message": (
-                    "Returned quantity exceeds the quantity allocated on the selected Build "
-                    "Orders for at least one stock item. Investigate before approval, or resubmit "
-                    "with override_over_return=true and an override_reason."
+                    "One or more reconciliation lines require explicit investigation and approval. "
+                    "Review the warning details, or resubmit with override_over_return=true and an "
+                    "override_reason where an override is supported."
                 ),
                 "items": previews,
             }
@@ -121,7 +121,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             if blocking_errors:
                 raise ValidationError("Stock changed since preview; review the returned results.")
             if hard_warnings and not override:
-                raise ValidationError("Over-return condition requires explicit override.")
+                raise ValidationError("Reconciliation warning requires explicit override.")
 
             for p in previews:
                 self._commit_one(
@@ -292,10 +292,22 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         # over-return warning would be misleading.
         positive_consume = max(D("0"), consume_qty)
 
+        # Reconciliation is based on physical consumption, not on comparing the
+        # physical return directly with the remaining BO allocation. Remaining
+        # allocation only limits how much calculated consumption can be attributed.
+        #
+        # Valid:
+        #   calculated_consumption = current_quantity - returned_quantity
+        #   0 <= calculated_consumption <= selected remaining allocations
+        #
+        # Invalid:
+        #   returned_quantity > current_quantity
+        #   calculated_consumption > selected remaining allocations
         if consume_qty < 0:
-            hard_warning = True
+            blocking_error = True
             messages.append(
-                "Physical returned quantity exceeds the current InvenTree quantity for this stock item."
+                "Physical returned quantity exceeds the current InvenTree quantity for this stock item. "
+                "Investigate the stock item, prior reconciliation, or returned quantity before proceeding."
             )
         elif positive_consume == 0:
             messages.append("No consumption required; returned quantity equals current stock quantity.")
@@ -304,15 +316,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 blocking_error = True
                 messages.append("No allocations for this stock item exist on the selected Build Orders.")
 
-            # The selected BO allocations are the user's declaration of what was physically sent.
-            if returned > total_allocated:
-                hard_warning = True
-                messages.append(
-                    "Physical returned quantity exceeds the quantity allocated on the selected Build Orders. "
-                    "This indicates another stock item, Build Order, or prior kit may be involved."
-                )
-
-        # We cannot attribute more consumption to selected BOs than their remaining allocations.
+        # We cannot attribute more physical consumption to selected BOs than their
+        # remaining allocations. This is the key allocation validation.
         if positive_consume > total_allocated:
             blocking_error = True
             messages.append(

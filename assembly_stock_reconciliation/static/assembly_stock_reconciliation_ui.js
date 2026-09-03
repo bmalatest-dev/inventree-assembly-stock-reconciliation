@@ -400,7 +400,7 @@ function ReconciliationPanel({ context }) {
         ? h("div", { style: { ...styles.alertWarn, marginTop: "14px" } },
             h("strong", null, "HARD WARNING — investigation and explicit approval required"),
             h("p", null,
-              "The physical return is not fully explained by the selected Build Order allocations. Do not override until the discrepancy has been investigated."
+              "This reconciliation requires explicit investigation and approval. Do not override until the discrepancy has been investigated."
             ),
             h("label", { style: { display: "flex", gap: "8px", alignItems: "flex-start", marginBottom: "10px" } },
               h("input", {
@@ -464,7 +464,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.2.0"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.2.1"}`
     )
   );
 }
