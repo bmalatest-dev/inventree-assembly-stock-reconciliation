@@ -1,6 +1,6 @@
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.1.1` (V1)
+Version: `0.1.2` (V1)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -27,7 +27,7 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 9. The preview is recalculated inside a database transaction immediately before commit to reduce the risk of acting on stale stock quantities.
 
 
-## 0.1.1 bug fix
+## 0.1.2 bug fix
 
 - Treat `returned_quantity == current_quantity` as a successful no-op.
 - Do not require a remaining BO allocation when calculated consumption is zero.
@@ -201,7 +201,7 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.1.1
+Tag: v0.1.2
 Title: Assembly Stock Reconciliation V1.0.1
 ```
 
@@ -233,5 +233,24 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.1.1
+Version: 0.1.2
+```
+
+## Stock tracking audit trail
+
+Each committed reconciliation records a detailed InvenTree stock-tracking note including:
+
+- Build Order responsible for the specific consumption entry
+- Starting stock quantity
+- Physical returned quantity
+- Total reconciled consumption
+- Quantity attributed to that Build Order
+- Selected Build Orders and deterministic consumption order
+- Optional operator notes
+- Explicit override reason when an over-return override is used
+
+Example:
+
+```text
+Assembly Stock Reconciliation | BO: BO-0008 | Starting Qty: 94.00000 | Returned Qty: 19 | Total Consumed: 75.00000 | This BO Consumed: 75.00000 | Selected BOs: BO-0008 | Consumption Order: BO-0008=75.00000
 ```

@@ -27,7 +27,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.1.1"
+    VERSION = "0.1.2"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -275,15 +275,40 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
         for line in preview["consumption_plan"]:
             grouped[line["build"]][line["build_item"]] = D(line["consume"])
 
-        tracking_note = "Assembly stock reconciliation"
-        if notes:
-            tracking_note += f" | {notes}"
-        if preview["hard_warning"] and override:
-            tracking_note += f" | OVERRIDE: {override_reason}"
+        # Build a detailed audit note for each stock-tracking entry. Each call to
+        # complete_allocations() is scoped to one Build Order, so record both the
+        # overall reconciliation and the amount attributed to that specific BO.
+        selected_bos = ", ".join(
+            line["build_reference"] for line in preview["consumption_plan"]
+        )
+        allocation_breakdown = ", ".join(
+            f'{line["build_reference"]}={line["consume"]}'
+            for line in preview["consumption_plan"]
+        )
 
         for build_id, quantities in grouped.items():
             build = Build.objects.select_for_update().get(pk=build_id)
             build_items = BuildItem.objects.filter(pk__in=quantities.keys())
+            this_build_consumption = sum(quantities.values(), D("0"))
+
+            tracking_parts = [
+                "Assembly Stock Reconciliation",
+                f"BO: {build.reference}",
+                f'Starting Qty: {preview["current_quantity"]}',
+                f'Returned Qty: {preview["returned_quantity"]}',
+                f'Total Consumed: {preview["calculated_consumption"]}',
+                f"This BO Consumed: {this_build_consumption}",
+                f"Selected BOs: {selected_bos}",
+                f"Consumption Order: {allocation_breakdown}",
+            ]
+
+            if notes:
+                tracking_parts.append(f"Notes: {notes}")
+            if preview["hard_warning"] and override:
+                tracking_parts.append(f"OVERRIDE USED: {override_reason}")
+
+            tracking_note = " | ".join(tracking_parts)
+
             build.complete_allocations(
                 build_items=build_items,
                 quantities=quantities,
