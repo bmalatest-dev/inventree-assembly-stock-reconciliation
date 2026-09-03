@@ -1,6 +1,6 @@
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.1.2` (V1)
+Version: `0.2.0` (V1 UI release)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -33,6 +33,26 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 - Do not require a remaining BO allocation when calculated consumption is zero.
 - Do not raise the allocation-based over-return warning for that zero-consumption case.
 - Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
+
+## 0.2.0 user interface
+
+Version 0.2.0 adds a native Stock Item panel using InvenTree's `UserInterfaceMixin`.
+
+From a Stock Item page, the operator can:
+
+- See the current Stock Item, part, batch, and quantity.
+- See Build Orders which still have allocations from that Stock Item.
+- Select one or more relevant Build Orders.
+- Enter the physical quantity returned from external assembly.
+- Add optional operator notes.
+- Preview the reconciliation before any stock changes occur.
+- Review the deterministic BO-order consumption plan.
+- Commit a normal reconciliation.
+- Receive a prominent HARD WARNING when an over-return discrepancy is detected.
+- Explicitly acknowledge and document an override reason before an override commit.
+- Refresh the panel after commit while InvenTree retains the native Stock Tracking audit trail.
+
+The raw `/api/action/` interface remains available for testing and automation.
 
 ## Important V1 limitation
 
@@ -164,7 +184,6 @@ After investigation, an authorized user can explicitly resubmit:
 
 ## V1.1 candidates
 
-- Native UI panel / wizard instead of raw API calls.
 - Search and select Build Orders by reference rather than numeric ID.
 - Scan Stock Item barcode / batch.
 - Automatically place hard-warning stock into an investigation / quarantine custom stock status.
@@ -201,8 +220,8 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.1.2
-Title: Assembly Stock Reconciliation V1.0.1
+Tag: v0.2.0
+Title: Assembly Stock Reconciliation V1 UI
 ```
 
 Suggested release notes:
@@ -233,7 +252,7 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.1.2
+Version: 0.2.0
 ```
 
 ## Stock tracking audit trail

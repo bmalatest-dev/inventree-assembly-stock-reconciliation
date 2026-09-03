@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-assembly-stock-reconciliation"
-version = "0.1.2"
+version = "0.2.0"
 description = "InvenTree plugin for reconciling stock returned after external assembly"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -24,3 +24,6 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = ["assembly_stock_reconciliation*"]
+
+[tool.setuptools.package-data]
+assembly_stock_reconciliation = ["static/*.js", "static/*.css"]

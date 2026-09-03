@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from plugin import InvenTreePlugin
-from plugin.mixins import ActionMixin
+from plugin.mixins import ActionMixin, UserInterfaceMixin
 
 from build.models import Build, BuildItem
 from stock.models import StockItem
@@ -16,7 +16,7 @@ from stock.models import StockItem
 D = decimal.Decimal
 
 
-class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
+class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
     """Reconcile stock physically returned from external assembly against selected Build Orders."""
 
     NAME = "AssemblyStockReconciliationPlugin"
@@ -27,7 +27,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.1.2"
+    VERSION = "0.2.0"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -59,6 +59,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
             raise ValidationError({name: f"Invalid decimal value: {value!r}"})
 
     def _run(self, user, data):
+        # Lightweight data endpoint used by the Stock Item UI panel.
+        if data.get("ui_context"):
+            return self._get_ui_context(data.get("stock_item") or data.get("stock_item_id"))
+
         commit = bool(data.get("commit", False))
         override = bool(data.get("override_over_return", False))
         override_reason = str(data.get("override_reason", "")).strip()
@@ -134,6 +138,92 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
             "override_used": bool(hard_warnings and override),
             "message": "Returned quantities reconciled and stock consumption recorded.",
             "items": previews,
+        }
+
+    def get_ui_panels(self, request, context, **kwargs):
+        """Add the reconciliation workflow directly to Stock Item detail pages."""
+        context = context or {}
+        target_model = context.get("target_model")
+        target_id = context.get("target_id")
+
+        if target_model != "stockitem" or not target_id:
+            return []
+
+        return [{
+            "key": "assembly-stock-reconciliation",
+            "title": "Assembly Stock Reconciliation",
+            "description": (
+                "Reconcile stock returned from external assembly against selected Build Orders."
+            ),
+            "icon": "ti:arrows-exchange:outline",
+            "source": self.plugin_static_file(
+                "assembly_stock_reconciliation_ui.js:renderPanel"
+            ),
+            "context": {
+                "stock_item_id": target_id,
+                "plugin_version": self.VERSION,
+            },
+        }]
+
+    def _get_ui_context(self, stock_item_id):
+        """Return current stock and remaining Build Order allocations for the UI."""
+        if not stock_item_id:
+            raise ValidationError({"stock_item": "Stock item ID is required."})
+
+        try:
+            stock = StockItem.objects.select_related("part").get(pk=stock_item_id)
+        except StockItem.DoesNotExist:
+            raise ValidationError({
+                "stock_item": f"Stock item {stock_item_id} does not exist."
+            })
+
+        allocations = list(
+            BuildItem.objects.filter(
+                stock_item=stock,
+                quantity__gt=0,
+            ).select_related("build_line", "build_line__build")
+        )
+
+        by_build = defaultdict(lambda: {
+            "allocated": D("0"),
+            "build_items": 0,
+            "reference": "",
+        })
+
+        for allocation in allocations:
+            build = allocation.build_line.build
+            row = by_build[build.pk]
+            row["allocated"] += D(str(allocation.quantity))
+            row["build_items"] += 1
+            row["reference"] = build.reference
+
+        builds = [
+            {
+                "build": build_id,
+                "reference": row["reference"],
+                "allocated": str(row["allocated"]),
+                "build_items": row["build_items"],
+            }
+            for build_id, row in sorted(by_build.items(), key=lambda item: item[0])
+        ]
+
+        return {
+            "ok": True,
+            "ui_context": True,
+            "stock_item": stock.pk,
+            "part": (
+                stock.part.full_name
+                if hasattr(stock.part, "full_name")
+                else str(stock.part)
+            ),
+            "ipn": getattr(stock.part, "IPN", None),
+            "batch": stock.batch or "",
+            "current_quantity": str(D(str(stock.quantity))),
+            "builds": builds,
+            "message": (
+                "Select the Build Orders which are relevant to the material returned "
+                "from external assembly."
+            ),
         }
 
     def _preview_one(self, raw, lock=False):
