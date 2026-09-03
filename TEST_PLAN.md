@@ -216,3 +216,15 @@ Before production deployment, decide whether those exceptions still need to be o
 - Extra StockItem allocation capacity unavailable -> BLOCK.
 - Above planned spillage -> HARD WARNING and override; override reason and JIT allocation are recorded.
 - Confirm Stock Tracking contains `JIT Allocation Added`.
+
+## Phase K — v0.3.2 price-source tests
+
+With blank Part Pricing and blank IC footprints:
+
+- Stock Unit Price 10 -> spillage 5
+- Stock Unit Price 25 -> spillage 2
+- Stock Unit Price 75 -> spillage 1
+- Stock Unit Price 250 -> spillage 0
+- Blank / zero stock price -> missing-price fallback 5
+
+Verify the UI shows the selected price source for every case.

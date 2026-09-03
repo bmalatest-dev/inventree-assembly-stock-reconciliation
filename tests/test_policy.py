@@ -11,6 +11,7 @@ _SPEC.loader.exec_module(_POLICY)
 spillage_per_project = _POLICY.spillage_per_project
 evaluate_policy = _POLICY.evaluate_policy
 aggregate_allocation_policy = _POLICY.aggregate_allocation_policy
+select_effective_price = _POLICY.select_effective_price
 
 D = Decimal
 
@@ -157,6 +158,24 @@ class MultiBuildPolicyTests(unittest.TestCase):
         self.assertEqual(limits["nominal_expected_consumption"], D(0))
         self.assertEqual(limits["acceptable_consumption_max"], D(3))
 
+
+    def test_effective_price_prefers_part_pricing(self):
+        result = select_effective_price(D("75"), D("25"))
+        self.assertEqual(result["effective_price"], D("75"))
+        self.assertEqual(result["price_source"], "part_pricing_max")
+
+    def test_effective_price_falls_back_to_stock_item(self):
+        result = select_effective_price(D("0"), D("25"))
+        self.assertEqual(result["effective_price"], D("25"))
+        self.assertEqual(result["price_source"], "stock_item_unit_price")
+        spill, rule = spillage_per_project("", result["effective_price"], "IC")
+        self.assertEqual(spill, D("2"))
+        self.assertEqual(rule, "price_10_to_50")
+
+    def test_effective_price_missing_uses_fallback(self):
+        result = select_effective_price(D("0"), D("0"))
+        self.assertEqual(result["effective_price"], D("0"))
+        self.assertEqual(result["price_source"], "missing_price_fallback")
 
 if __name__ == '__main__':
     unittest.main()

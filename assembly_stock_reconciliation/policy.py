@@ -33,6 +33,20 @@ def fmt_decimal(value) -> str:
 
 
 
+
+def select_effective_price(part_pricing_max, stock_unit_price):
+    """Choose the live price used by the spillage policy."""
+    part_price = dec(part_pricing_max)
+    stock_price = dec(stock_unit_price)
+
+    if part_price > 0:
+        return {"effective_price": part_price, "price_source": "part_pricing_max"}
+    if stock_price > 0:
+        return {"effective_price": stock_price, "price_source": "stock_item_unit_price"}
+    return {"effective_price": D("0"), "price_source": "missing_price_fallback"}
+
+
+
 def normalize_footprint(value: str) -> str:
     """Normalize package text to the footprint tokens used by the legacy engine."""
     text = str(value or "").strip().upper()

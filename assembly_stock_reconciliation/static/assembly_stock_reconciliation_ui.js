@@ -251,7 +251,10 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Current Quantity", value: fmt(stock.current_quantity) }),
         h(SummaryStat, { label: "Batch", value: stock.batch || "—" }),
         h(SummaryStat, { label: "Case / Package", value: stock.case_package || "—" }),
-        h(SummaryStat, { label: "Pricing Max", value: fmt(stock.pricing_max) }),
+        h(SummaryStat, { label: "Part Pricing Max", value: Number(stock.part_pricing_max || 0) > 0 ? fmt(stock.part_pricing_max) : "—" }),
+        h(SummaryStat, { label: "Stock Item Unit Price", value: Number(stock.stock_unit_price || 0) > 0 ? fmt(stock.stock_unit_price) : "—" }),
+        h(SummaryStat, { label: "Effective Policy Price", value: Number(stock.effective_price || 0) > 0 ? fmt(stock.effective_price) : "Missing / zero" }),
+        h(SummaryStat, { label: "Price Source", value: String(stock.price_source || "—").replaceAll("_", " ") }),
         h(SummaryStat, { label: "Planned Spillage / BO", value: fmt(stock.spillage_per_project) }),
         h(SummaryStat, { label: "Spillage Rule", value: stock.spillage_rule || "—" })
       )
@@ -362,7 +365,10 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Maximum Acceptable Consumption", value: fmt(itemPreview.acceptable_consumption_max) }),
         h(SummaryStat, { label: "Additional Allocation on Commit", value: fmt(itemPreview.additional_allocation_required) }),
         h(SummaryStat, { label: "Expected Return Range", value: `${fmt(itemPreview.expected_return_min)} to ${fmt(itemPreview.expected_return_max)}` }),
-        h(SummaryStat, { label: "Policy Result", value: String(itemPreview.policy_classification || "—").replaceAll("_", " ") })
+        h(SummaryStat, { label: "Policy Result", value: String(itemPreview.policy_classification || "—").replaceAll("_", " ") }),
+        h(SummaryStat, { label: "Effective Policy Price", value: Number(itemPreview.effective_price || 0) > 0 ? fmt(itemPreview.effective_price) : "Missing / zero" }),
+        h(SummaryStat, { label: "Price Source", value: String(itemPreview.price_source || "—").replaceAll("_", " ") }),
+        h(SummaryStat, { label: "Spillage Rule", value: itemPreview.spillage_rule || "—" })
       ),
 
       itemPreview.messages?.length
@@ -476,7 +482,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.1"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.2"}`
     )
   );
 }

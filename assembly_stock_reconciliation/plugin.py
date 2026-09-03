@@ -12,7 +12,7 @@ from plugin.mixins import ActionMixin, UserInterfaceMixin
 from build.models import Build, BuildItem
 from stock.models import StockItem
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price
 
 
 D = decimal.Decimal
@@ -29,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.3.1"
+    VERSION = "0.3.2"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -212,25 +212,46 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             return D("0")
 
     def _pricing_max(self, part):
-        # InvenTree caches the overall pricing range on the one-to-one pricing_data
-        # relation. This is the same overall max value exposed by the Part API / export
-        # as `pricing_max`.
+        # Prefer the cached Part Pricing maximum when it is populated.
         try:
             pricing = part.pricing_data
             return self._money_decimal(getattr(pricing, "overall_max", None))
         except Exception:
             return D("0")
 
-    def _spillage_policy(self, part):
+    def _stock_unit_price(self, stock):
+        # StockItem.purchase_price is the unit purchase price stored on the
+        # physical Stock Item and is used when Part Pricing is blank / zero.
+        try:
+            return self._money_decimal(getattr(stock, "purchase_price", None))
+        except Exception:
+            return D("0")
+
+    def _spillage_policy(self, stock):
+        part = stock.part
         category = self._part_category_text(part)
         case_package = self._case_package(part)
-        pricing_max = self._pricing_max(part)
-        spill, rule = spillage_per_project(case_package, pricing_max, category)
+
+        part_pricing_max = self._pricing_max(part)
+        stock_unit_price = self._stock_unit_price(stock)
+        selected = select_effective_price(part_pricing_max, stock_unit_price)
+
+        spill, rule = spillage_per_project(
+            case_package,
+            selected["effective_price"],
+            category,
+        )
+
         return {
             "part_category": category,
             "case_package": case_package,
             "normalized_footprint": normalize_footprint(case_package),
-            "pricing_max": pricing_max,
+            "part_pricing_max": part_pricing_max,
+            "stock_unit_price": stock_unit_price,
+            "effective_price": selected["effective_price"],
+            "price_source": selected["price_source"],
+            # Backward-compatible field name
+            "pricing_max": selected["effective_price"],
             "spillage_per_project": D(str(spill)),
             "spillage_rule": rule,
         }
@@ -254,7 +275,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         Consumption attribution still follows deterministic BO order, while the policy
         engine evaluates the selected BOs as one physical reconciliation group.
         """
-        policy = self._spillage_policy(stock.part)
+        policy = self._spillage_policy(stock)
         spill_per_project = D(str(policy["spillage_per_project"]))
 
         # Aggregate selected allocation by BuildLine so nominal requirement and prior
@@ -344,7 +365,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             for build_id, row in sorted(by_build.items(), key=lambda item: item[0])
         ]
 
-        part_policy = self._spillage_policy(stock.part)
+        part_policy = self._spillage_policy(stock)
 
         return {
             "ok": True,
@@ -362,6 +383,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "part_category": part_policy["part_category"],
             "case_package": part_policy["case_package"],
             "normalized_footprint": part_policy["normalized_footprint"],
+            "part_pricing_max": str(part_policy["part_pricing_max"]),
+            "stock_unit_price": str(part_policy["stock_unit_price"]),
+            "effective_price": str(part_policy["effective_price"]),
+            "price_source": part_policy["price_source"],
             "pricing_max": str(part_policy["pricing_max"]),
             "spillage_per_project": str(part_policy["spillage_per_project"]),
             "spillage_rule": part_policy["spillage_rule"],
@@ -532,6 +557,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "part_category": policy["part_category"],
             "case_package": policy["case_package"],
             "normalized_footprint": policy["normalized_footprint"],
+            "part_pricing_max": str(policy["part_pricing_max"]),
+            "stock_unit_price": str(policy["stock_unit_price"]),
+            "effective_price": str(policy["effective_price"]),
+            "price_source": policy["price_source"],
             "pricing_max": str(policy["pricing_max"]),
             "policy_projects": policy["project_details"],
             "hard_warning": hard_warning,
@@ -584,6 +613,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 f'Planned Max: {preview.get("acceptable_consumption_max", "")}',
                 f'Policy: {preview.get("policy_classification", "")}',
                 f'Spillage Rule: {preview.get("spillage_rule", "")}',
+                f'Effective Price: {fmt_decimal(preview.get("effective_price", "0"))}',
+                f'Price Source: {preview.get("price_source", "")}',
                 f'JIT Allocation Added: {sum((D(str(x.get("additional_allocation_required", "0"))) for x in preview["consumption_plan"] if x["build"] == build_id), D("0"))}',
                 f"This BO Consumed: {this_build_consumption}",
                 f"Selected BOs: {selected_bos}",
