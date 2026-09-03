@@ -1,1 +1,2 @@
 recursive-include assembly_stock_reconciliation/static *.js *.css
+recursive-include tests *.py

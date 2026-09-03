@@ -203,7 +203,7 @@ function ReconciliationPanel({ context }) {
       };
 
       if (useOverride) {
-        payload.data.override_over_return = true;
+        payload.data.override_policy_warning = true;
         payload.data.override_reason = overrideReason.trim();
       }
 
@@ -249,7 +249,11 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Stock Item", value: `#${stock.stock_item}` }),
         h(SummaryStat, { label: "Part", value: stock.part || "—" }),
         h(SummaryStat, { label: "Current Quantity", value: fmt(stock.current_quantity) }),
-        h(SummaryStat, { label: "Batch", value: stock.batch || "—" })
+        h(SummaryStat, { label: "Batch", value: stock.batch || "—" }),
+        h(SummaryStat, { label: "Case / Package", value: stock.case_package || "—" }),
+        h(SummaryStat, { label: "Pricing Max", value: fmt(stock.pricing_max) }),
+        h(SummaryStat, { label: "Planned Spillage / BO", value: fmt(stock.spillage_per_project) }),
+        h(SummaryStat, { label: "Spillage Rule", value: stock.spillage_rule || "—" })
       )
     ),
 
@@ -352,7 +356,11 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Starting Quantity", value: fmt(itemPreview.current_quantity) }),
         h(SummaryStat, { label: "Returned Quantity", value: fmt(itemPreview.returned_quantity) }),
         h(SummaryStat, { label: "Selected Allocations", value: fmt(itemPreview.selected_allocation_quantity) }),
-        h(SummaryStat, { label: "Calculated Consumption", value: fmt(itemPreview.calculated_consumption) })
+        h(SummaryStat, { label: "Calculated Consumption", value: fmt(itemPreview.calculated_consumption) }),
+        h(SummaryStat, { label: "Nominal Expected Consumption", value: fmt(itemPreview.nominal_expected_consumption) }),
+        h(SummaryStat, { label: "Planned Consumption Max", value: fmt(itemPreview.acceptable_consumption_max) }),
+        h(SummaryStat, { label: "Expected Return Range", value: `${fmt(itemPreview.expected_return_min)} to ${fmt(itemPreview.expected_return_max)}` }),
+        h(SummaryStat, { label: "Policy Result", value: String(itemPreview.policy_classification || "—").replaceAll("_", " ") })
       ),
 
       itemPreview.messages?.length
@@ -400,7 +408,7 @@ function ReconciliationPanel({ context }) {
         ? h("div", { style: { ...styles.alertWarn, marginTop: "14px" } },
             h("strong", null, "HARD WARNING — investigation and explicit approval required"),
             h("p", null,
-              "This reconciliation requires explicit investigation and approval. Do not override until the discrepancy has been investigated."
+              "Actual consumption falls outside the nominal-to-planned-spillage range. Do not override until the manufacturing discrepancy has been investigated."
             ),
             h("label", { style: { display: "flex", gap: "8px", alignItems: "flex-start", marginBottom: "10px" } },
               h("input", {
@@ -464,7 +472,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.2.1"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.0"}`
     )
   );
 }

@@ -12,6 +12,8 @@ from plugin.mixins import ActionMixin, UserInterfaceMixin
 from build.models import Build, BuildItem
 from stock.models import StockItem
 
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy
+
 
 D = decimal.Decimal
 
@@ -27,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.2.1"
+    VERSION = "0.3.0"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -64,7 +66,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             return self._get_ui_context(data.get("stock_item") or data.get("stock_item_id"))
 
         commit = bool(data.get("commit", False))
-        override = bool(data.get("override_over_return", False))
+        override = bool(data.get("override_policy_warning", data.get("override_over_return", False)))
         override_reason = str(data.get("override_reason", "")).strip()
         notes = str(data.get("notes", "")).strip()
         items = data.get("items", [])
@@ -74,7 +76,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
 
         if override and not override_reason:
             raise ValidationError({
-                "override_reason": "A reason is required when override_over_return is true."
+                "override_reason": "A reason is required when a reconciliation policy warning is overridden."
             })
 
         previews = [self._preview_one(item) for item in items]
@@ -97,8 +99,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 "override_required": True,
                 "message": (
                     "One or more reconciliation lines require explicit investigation and approval. "
-                    "Review the warning details, or resubmit with override_over_return=true and an "
-                    "override_reason where an override is supported."
+                    "Review the warning details, or resubmit with override_policy_warning=true and an "
+                    "override_reason."
                 ),
                 "items": previews,
             }
@@ -165,6 +167,128 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             },
         }]
 
+    @staticmethod
+    def _part_category_text(part):
+        category = getattr(part, "category", None)
+        if not category:
+            return ""
+        return str(getattr(category, "pathstring", None) or getattr(category, "name", None) or category)
+
+    @staticmethod
+    def _part_parameter_map(part):
+        try:
+            values = part.parameters_map()
+            return values if isinstance(values, dict) else {}
+        except Exception:
+            # Current InvenTree Part objects expose parameters_list; retain a fallback
+            # so the plugin remains tolerant of older supported server versions.
+            try:
+                return {
+                    str(p.template.name): str(p.data)
+                    for p in part.parameters_list.select_related("template").all()
+                }
+            except Exception:
+                return {}
+
+    def _case_package(self, part):
+        params = self._part_parameter_map(part)
+        aliases = {
+            "case/package", "case / package", "case package", "case-package",
+            "footprint", "package", "case"
+        }
+        for name, value in params.items():
+            if str(name).strip().casefold() in aliases and str(value or "").strip():
+                return str(value).strip()
+        return ""
+
+    @staticmethod
+    def _money_decimal(value):
+        if value is None:
+            return D("0")
+        amount = getattr(value, "amount", value)
+        try:
+            return D(str(amount))
+        except Exception:
+            return D("0")
+
+    def _pricing_max(self, part):
+        # InvenTree caches the overall pricing range on the one-to-one pricing_data
+        # relation. This is the same overall max value exposed by the Part API / export
+        # as `pricing_max`.
+        try:
+            pricing = part.pricing_data
+            return self._money_decimal(getattr(pricing, "overall_max", None))
+        except Exception:
+            return D("0")
+
+    def _spillage_policy(self, part):
+        category = self._part_category_text(part)
+        case_package = self._case_package(part)
+        pricing_max = self._pricing_max(part)
+        spill, rule = spillage_per_project(case_package, pricing_max, category)
+        return {
+            "part_category": category,
+            "case_package": case_package,
+            "normalized_footprint": normalize_footprint(case_package),
+            "pricing_max": pricing_max,
+            "spillage_per_project": D(str(spill)),
+            "spillage_rule": rule,
+        }
+
+    def _policy_for_allocations(self, stock, allocations):
+        """Calculate nominal and spillage limits for selected allocations.
+
+        Consumption attribution still follows deterministic BO order, while the policy
+        engine evaluates the selected BOs as one physical reconciliation group.
+        """
+        policy = self._spillage_policy(stock.part)
+        spill_per_project = D(str(policy["spillage_per_project"]))
+
+        # Aggregate selected allocation by BuildLine so nominal requirement and prior
+        # consumption are counted once even if more than one BuildItem references it.
+        by_line = defaultdict(lambda: {
+            "allocated": D("0"),
+            "line": None,
+            "build": None,
+        })
+        for allocation in allocations:
+            line = allocation.build_line
+            row = by_line[line.pk]
+            row["allocated"] += D(str(allocation.quantity))
+            row["line"] = line
+            row["build"] = line.build
+
+        rows = []
+        for line_id, row in sorted(
+            by_line.items(), key=lambda item: (item[1]["build"].pk, item[0])
+        ):
+            line = row["line"]
+            build = row["build"]
+            rows.append({
+                "build": build.pk,
+                "build_reference": build.reference,
+                "build_line": line_id,
+                "allocated": row["allocated"],
+                "required": D(str(line.quantity)),
+                "consumed": D(str(line.consumed)),
+            })
+
+        aggregate = aggregate_allocation_policy(rows, spill_per_project)
+        project_details = []
+        for detail in aggregate["project_details"]:
+            project_details.append({
+                key: (str(value) if isinstance(value, D) else value)
+                for key, value in detail.items()
+                if key not in {"allocated", "required", "consumed"}
+            })
+
+        return {
+            **policy,
+            "nominal_expected_consumption": aggregate["nominal_expected_consumption"],
+            "acceptable_consumption_max": aggregate["acceptable_consumption_max"],
+            "project_details": project_details,
+        }
+
     def _get_ui_context(self, stock_item_id):
         """Return current stock and remaining Build Order allocations for the UI."""
         if not stock_item_id:
@@ -181,7 +305,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             BuildItem.objects.filter(
                 stock_item=stock,
                 quantity__gt=0,
-            ).select_related("build_line", "build_line__build")
+            ).select_related("build_line", "build_line__build", "build_line__bom_item")
         )
 
         by_build = defaultdict(lambda: {
@@ -207,6 +331,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             for build_id, row in sorted(by_build.items(), key=lambda item: item[0])
         ]
 
+        part_policy = self._spillage_policy(stock.part)
+
         return {
             "ok": True,
             "ui_context": True,
@@ -220,6 +346,12 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "batch": stock.batch or "",
             "current_quantity": str(D(str(stock.quantity))),
             "builds": builds,
+            "part_category": part_policy["part_category"],
+            "case_package": part_policy["case_package"],
+            "normalized_footprint": part_policy["normalized_footprint"],
+            "pricing_max": str(part_policy["pricing_max"]),
+            "spillage_per_project": str(part_policy["spillage_per_project"]),
+            "spillage_rule": part_policy["spillage_rule"],
             "message": (
                 "Select the Build Orders which are relevant to the material returned "
                 "from external assembly."
@@ -270,7 +402,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             BuildItem.objects.filter(
                 stock_item=stock,
                 build_line__build_id__in=build_ids,
-            ).select_related("build_line", "build_line__build")
+            ).select_related("build_line", "build_line__build", "build_line__bom_item")
         )
 
         total_allocated = sum((D(str(a.quantity)) for a in allocations), D("0"))
@@ -285,45 +417,23 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             blocking_error = True
             messages.append(f"Build Order IDs not found: {missing}")
 
-        # A zero-consumption reconciliation is a valid no-op. This commonly occurs when
-        # an operator previews / repeats a reconciliation after all required consumption
-        # has already been recorded, or when the entire current stock quantity is returned.
-        # In this case no remaining BO allocation is required and an allocation-based
-        # over-return warning would be misleading.
-        positive_consume = max(D("0"), consume_qty)
-
-        # Reconciliation is based on physical consumption, not on comparing the
-        # physical return directly with the remaining BO allocation. Remaining
-        # allocation only limits how much calculated consumption can be attributed.
-        #
-        # Valid:
-        #   calculated_consumption = current_quantity - returned_quantity
-        #   0 <= calculated_consumption <= selected remaining allocations
-        #
-        # Invalid:
-        #   returned_quantity > current_quantity
-        #   calculated_consumption > selected remaining allocations
-        if consume_qty < 0:
+        if not allocations and consume_qty > 0:
             blocking_error = True
-            messages.append(
-                "Physical returned quantity exceeds the current InvenTree quantity for this stock item. "
-                "Investigate the stock item, prior reconciliation, or returned quantity before proceeding."
-            )
-        elif positive_consume == 0:
-            messages.append("No consumption required; returned quantity equals current stock quantity.")
-        else:
-            if not allocations:
-                blocking_error = True
-                messages.append("No allocations for this stock item exist on the selected Build Orders.")
+            messages.append("No allocations for this stock item exist on the selected Build Orders.")
 
-        # We cannot attribute more physical consumption to selected BOs than their
-        # remaining allocations. This is the key allocation validation.
-        if positive_consume > total_allocated:
-            blocking_error = True
-            messages.append(
-                f"Calculated consumption ({positive_consume}) exceeds selected allocations "
-                f"({total_allocated}). Select additional relevant Build Orders or investigate."
-            )
+        policy = self._policy_for_allocations(stock, allocations)
+        evaluation = evaluate_policy(
+            current_quantity=current_qty,
+            returned_quantity=returned,
+            selected_allocation=total_allocated,
+            nominal_expected=policy["nominal_expected_consumption"],
+            acceptable_max=policy["acceptable_consumption_max"],
+        )
+
+        blocking_error = blocking_error or evaluation["blocking_error"]
+        hard_warning = evaluation["hard_warning"]
+        messages.extend(evaluation["messages"])
+        positive_consume = evaluation["calculated_consumption"]
 
         plan = []
         remaining = positive_consume
@@ -353,6 +463,18 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "returned_quantity": str(returned),
             "selected_allocation_quantity": str(total_allocated),
             "calculated_consumption": str(positive_consume),
+            "nominal_expected_consumption": str(policy["nominal_expected_consumption"]),
+            "planned_spillage_per_project": str(policy["spillage_per_project"]),
+            "acceptable_consumption_max": str(policy["acceptable_consumption_max"]),
+            "expected_return_min": str(evaluation["expected_return_min"]),
+            "expected_return_max": str(evaluation["expected_return_max"]),
+            "policy_classification": evaluation["policy_classification"],
+            "spillage_rule": policy["spillage_rule"],
+            "part_category": policy["part_category"],
+            "case_package": policy["case_package"],
+            "normalized_footprint": policy["normalized_footprint"],
+            "pricing_max": str(policy["pricing_max"]),
+            "policy_projects": policy["project_details"],
             "hard_warning": hard_warning,
             "blocking_error": blocking_error,
             "messages": messages,
@@ -362,8 +484,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
     def _commit_one(self, preview, user, notes, override, override_reason):
         consume_qty = D(preview["calculated_consumption"])
         if consume_qty <= 0:
-            # Over-return with no consumable quantity: leave stock untouched. The warning / override
-            # still creates an explicit acknowledgement in the API result.
+            # No physical consumption is required, so leave stock untouched. Any policy
+            # warning / override remains explicit in the API result.
             return
 
         grouped = defaultdict(dict)
@@ -392,6 +514,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 f'Starting Qty: {preview["current_quantity"]}',
                 f'Returned Qty: {preview["returned_quantity"]}',
                 f'Total Consumed: {preview["calculated_consumption"]}',
+                f'Nominal Expected: {preview.get("nominal_expected_consumption", "")}',
+                f'Planned Max: {preview.get("acceptable_consumption_max", "")}',
+                f'Policy: {preview.get("policy_classification", "")}',
+                f'Spillage Rule: {preview.get("spillage_rule", "")}',
                 f"This BO Consumed: {this_build_consumption}",
                 f"Selected BOs: {selected_bos}",
                 f"Consumption Order: {allocation_breakdown}",

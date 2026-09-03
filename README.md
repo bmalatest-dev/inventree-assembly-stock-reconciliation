@@ -1,6 +1,6 @@
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.2.1` (V1 UI bug-fix release)
+Version: `0.3.0` (manufacturing-policy test release)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -33,6 +33,90 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 - Do not require a remaining BO allocation when calculated consumption is zero.
 - Do not raise the allocation-based over-return warning for that zero-consumption case.
 - Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
+
+## 0.3.0 manufacturing policy: nominal consumption + spillage / overage
+
+Version 0.3.0 adds the manufacturing-policy layer recovered from the existing
+estimating-allocation scripts.
+
+### Reused spillage engine
+
+Per-project / per-BO allowance:
+
+| Rule | Allowance |
+|---|---:|
+| 0201 | 200 |
+| 0402 | 100 |
+| 0603 | 50 |
+| 0805 | 25 |
+| 1206 / 1210 | 20 |
+| Price > 200 | 0 |
+| Price > 50 | 1 |
+| Price > 10 | 2 |
+| Price <= 10 | 5 |
+| Missing price, basic passive with known footprint | footprint rule |
+| Missing price, other | 5 |
+
+The plugin reads `Case/Package` from the Part parameter map and reads the cached
+InvenTree `pricing_data.overall_max` value, which corresponds to the Part API / export
+`pricing_max` value.
+
+### Reconciliation policy
+
+For the selected BOs the plugin now calculates:
+
+```text
+nominal expected consumption
+planned spillage / overage allowance
+maximum acceptable consumption
+expected physical return range
+actual calculated consumption
+```
+
+Results are classified as:
+
+- `within_nominal`: normal.
+- `within_spillage`: normal; planned spillage / overage is explicitly reported.
+- `below_nominal`: HARD WARNING; more material came back than expected.
+- `above_spillage_allowance`: HARD WARNING; actual consumption is beyond the planned allowance but still mechanically allocatable.
+- `consumption_exceeds_allocation`: BLOCK.
+- `return_exceeds_stock`: BLOCK.
+- `no_op`: valid only when no nominal consumption remains.
+
+Warnings require explicit investigation and an override reason. Blocking errors cannot be overridden.
+
+### Automated test pathway
+
+`tests/test_policy.py` covers the footprint and price bands plus real-world reconciliation cases:
+
+- exact nominal consumption;
+- unexpected excess return / under-consumption;
+- consumption inside planned spillage;
+- consumption beyond planned spillage;
+- consumption beyond selected allocation;
+- return greater than current stock;
+- valid no-op after all nominal consumption is complete;
+- invalid full return while nominal consumption remains;
+- multi-BO nominal aggregation and unexpected excess return;
+- multi-BO planned spillage allowance;
+- partial prior reconciliation;
+- prior consumption of part of the spillage allowance.
+
+See `TEST_PLAN.md` for the staged manual manufacturing test pathway.
+
+Run with:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+### Current limitation
+
+The legacy estimating script also supports an optional external `ignore-spillage.csv` list.
+Version 0.3.0 does not import that external CSV into the live plugin. The core footprint / price
+engine is reused exactly; if the ignore-spillage exception list is still operationally required,
+it should be represented in InvenTree itself (for example as a Part parameter or plugin setting)
+in a follow-on release rather than depending on an external planning CSV.
 
 ## 0.2.1 reconciliation validation fix
 
@@ -252,7 +336,7 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.2.1
+Tag: v0.3.0
 Title: Assembly Stock Reconciliation V1 UI
 ```
 
@@ -284,7 +368,7 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.2.1
+Version: 0.3.0
 ```
 
 ## Stock tracking audit trail
