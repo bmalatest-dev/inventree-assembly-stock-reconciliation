@@ -1,6 +1,6 @@
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.1.0` (V1)
+Version: `0.1.1` (V1)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -19,17 +19,26 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 1. **Preview first** — `commit=false` makes no stock changes.
 2. **Selected BOs define attribution** — only allocations on selected Build Orders can be consumed.
 3. **Consumption cannot exceed selected allocations** — this is a blocking error.
-4. **Returned quantity greater than selected allocations is a HARD WARNING** — commit is blocked unless `override_over_return=true` and a non-empty `override_reason` is supplied.
-5. **Returned quantity greater than current InvenTree quantity is also a HARD WARNING.**
-6. **Native InvenTree consumption is used** — the plugin calls `Build.complete_allocations()` so InvenTree performs its normal stock splitting, consumption, BuildLine updates, and tracking.
-7. An optional `batch` can be supplied. If it does not match the Stock Item batch, processing is blocked.
-8. The preview is recalculated inside a database transaction immediately before commit to reduce the risk of acting on stale stock quantities.
+4. **Returned quantity greater than selected allocations is a HARD WARNING when consumption is required** — commit is blocked unless `override_over_return=true` and a non-empty `override_reason` is supplied.
+5. **Zero-consumption reconciliations are valid no-ops** — when `returned_quantity == current InvenTree quantity`, no remaining BO allocation is required, no allocation-based over-return warning is raised, and no stock is changed.
+6. **Returned quantity greater than current InvenTree quantity is always a HARD WARNING.**
+7. **Native InvenTree consumption is used** — the plugin calls `Build.complete_allocations()` so InvenTree performs its normal stock splitting, consumption, BuildLine updates, and tracking.
+8. An optional `batch` can be supplied. If it does not match the Stock Item batch, processing is blocked.
+9. The preview is recalculated inside a database transaction immediately before commit to reduce the risk of acting on stale stock quantities.
+
+
+## 0.1.1 bug fix
+
+- Treat `returned_quantity == current_quantity` as a successful no-op.
+- Do not require a remaining BO allocation when calculated consumption is zero.
+- Do not raise the allocation-based over-return warning for that zero-consumption case.
+- Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
 
 ## Important V1 limitation
 
 V1 does **not** automatically change an over-returned Stock Item to a quarantine / investigation custom status. The transaction is blocked unless expressly overridden, and the override reason is added to the consumption tracking note when consumption occurs.
 
-Automatic quarantine / investigation handling is a candidate for V1.1 once the applicable custom stock status is confirmed.
+Automatic quarantine / investigation handling is a candidate for a later V1.x release once the applicable custom stock status is confirmed.
 
 ## Installation
 
@@ -189,11 +198,11 @@ build-orders
 external-assembly
 ```
 
-Suggested first release:
+Suggested release:
 
 ```text
-Tag: v0.1.0
-Title: Assembly Stock Reconciliation V1
+Tag: v0.1.1
+Title: Assembly Stock Reconciliation V1.0.1
 ```
 
 Suggested release notes:
@@ -224,5 +233,5 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.1.0
+Version: 0.1.1
 ```

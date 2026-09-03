@@ -27,7 +27,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.1.0"
+    VERSION = "0.1.1"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -195,26 +195,34 @@ class AssemblyStockReconciliationPlugin(ActionMixin, InvenTreePlugin):
             blocking_error = True
             messages.append(f"Build Order IDs not found: {missing}")
 
-        if not allocations:
-            blocking_error = True
-            messages.append("No allocations for this stock item exist on the selected Build Orders.")
+        # A zero-consumption reconciliation is a valid no-op. This commonly occurs when
+        # an operator previews / repeats a reconciliation after all required consumption
+        # has already been recorded, or when the entire current stock quantity is returned.
+        # In this case no remaining BO allocation is required and an allocation-based
+        # over-return warning would be misleading.
+        positive_consume = max(D("0"), consume_qty)
 
         if consume_qty < 0:
             hard_warning = True
             messages.append(
                 "Physical returned quantity exceeds the current InvenTree quantity for this stock item."
             )
+        elif positive_consume == 0:
+            messages.append("No consumption required; returned quantity equals current stock quantity.")
+        else:
+            if not allocations:
+                blocking_error = True
+                messages.append("No allocations for this stock item exist on the selected Build Orders.")
 
-        # The selected BO allocations are the user's declaration of what was physically sent.
-        if returned > total_allocated:
-            hard_warning = True
-            messages.append(
-                "Physical returned quantity exceeds the quantity allocated on the selected Build Orders. "
-                "This indicates another stock item, Build Order, or prior kit may be involved."
-            )
+            # The selected BO allocations are the user's declaration of what was physically sent.
+            if returned > total_allocated:
+                hard_warning = True
+                messages.append(
+                    "Physical returned quantity exceeds the quantity allocated on the selected Build Orders. "
+                    "This indicates another stock item, Build Order, or prior kit may be involved."
+                )
 
         # We cannot attribute more consumption to selected BOs than their remaining allocations.
-        positive_consume = max(D("0"), consume_qty)
         if positive_consume > total_allocated:
             blocking_error = True
             messages.append(
