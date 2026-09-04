@@ -12,7 +12,7 @@ from plugin.mixins import ActionMixin, UserInterfaceMixin
 from build.models import Build, BuildItem
 from stock.models import StockItem
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note
 
 
 D = decimal.Decimal
@@ -29,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.3.3"
+    VERSION = "0.3.4"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -255,6 +255,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "spillage_per_project": D(str(spill)),
             "spillage_rule": rule,
         }
+
+    @staticmethod
+    def _compact_tracking_note(parts, max_length=512):
+        return compact_tracking_note(parts, max_length=max_length)
 
     @staticmethod
     def _extra_allocation_capacity(stock):
@@ -665,33 +669,31 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             ), D("0"))
 
             tracking_parts = [
-                "Assembly Stock Reconciliation",
-                f"BO: {build.reference}",
-                f'Starting Qty: {fmt_decimal(preview["current_quantity"])}',
-                f'Returned Qty: {fmt_decimal(preview["returned_quantity"])}',
-                f'Total Consumed: {fmt_decimal(preview["calculated_consumption"])}',
-                f'Nominal Expected: {fmt_decimal(preview.get("nominal_expected_consumption", "0"))}',
-                f'Planned Spillage Allowance: {fmt_decimal(preview.get("planned_spillage_allowance", "0"))}',
-                f'Planned Max: {fmt_decimal(preview.get("acceptable_consumption_max", "0"))}',
-                f'Planned Spillage Used: {fmt_decimal(this_build_spillage_consumed)}',
-                f'Exception Qty: {fmt_decimal(this_build_exception_consumed)}',
-                f'Policy: {preview.get("policy_classification", "")}',
-                f'Spillage Rule: {preview.get("spillage_rule", "")}',
-                f'Effective Price: {fmt_decimal(preview.get("effective_price", "0"))}',
-                f'Price Source: {preview.get("price_source", "")}',
-                f'Planned JIT Allocation Added: {fmt_decimal(this_build_planned_jit)}',
-                f'Exception Allocation Added: {fmt_decimal(this_build_exception_allocation)}',
-                f"This BO Consumed: {fmt_decimal(this_build_consumption)}",
-                f"Selected BOs: {selected_bos}",
-                f"Consumption Order: {allocation_breakdown}",
+                "Stock Rec",
+                f"BO {build.reference}",
+                f"Start {fmt_decimal(preview['current_quantity'])}",
+                f"Return {fmt_decimal(preview['returned_quantity'])}",
+                f"Consumed {fmt_decimal(this_build_consumption)}",
+                f"Nominal {fmt_decimal(preview.get('nominal_expected_consumption', '0'))}",
+                f"SpillAllow {fmt_decimal(preview.get('planned_spillage_allowance', '0'))}",
+                f"SpillUsed {fmt_decimal(this_build_spillage_consumed)}",
+                f"Exception {fmt_decimal(this_build_exception_consumed)}",
+                f"JIT {fmt_decimal(this_build_planned_jit)}",
+                f"ExAlloc {fmt_decimal(this_build_exception_allocation)}",
+                f"Policy {preview.get('policy_classification', '')}",
+                f"Rule {preview.get('spillage_rule', '')}",
+                f"Price {fmt_decimal(preview.get('effective_price', '0'))}",
+                f"Src {preview.get('price_source', '')}",
+                f"Selected {selected_bos}",
+                f"Order {allocation_breakdown}",
             ]
 
             if notes:
-                tracking_parts.append(f"Notes: {notes}")
+                tracking_parts.append(f"Notes {notes}")
             if preview["hard_warning"] and override:
-                tracking_parts.append(f"OVERRIDE USED: {override_reason}")
+                tracking_parts.append(f"OVERRIDE {override_reason}")
 
-            tracking_note = " | ".join(tracking_parts)
+            tracking_note = self._compact_tracking_note(tracking_parts, max_length=512)
 
             build.complete_allocations(
                 build_items=build_items,

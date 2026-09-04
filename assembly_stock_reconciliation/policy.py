@@ -47,6 +47,18 @@ def select_effective_price(part_pricing_max, stock_unit_price):
 
 
 
+
+def compact_tracking_note(parts, max_length=512):
+    """Build a compact note which never exceeds max_length."""
+    cleaned = [str(x or "").strip() for x in parts if str(x or "").strip()]
+    note = " | ".join(cleaned)
+    if len(note) <= max_length:
+        return note
+    suffix = " | ..."
+    return note[: max_length - len(suffix)].rstrip(" |") + suffix
+
+
+
 def normalize_footprint(value: str) -> str:
     """Normalize package text to the footprint tokens used by the legacy engine."""
     text = str(value or "").strip().upper()

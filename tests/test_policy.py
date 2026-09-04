@@ -13,6 +13,7 @@ evaluate_policy = _POLICY.evaluate_policy
 aggregate_allocation_policy = _POLICY.aggregate_allocation_policy
 select_effective_price = _POLICY.select_effective_price
 distribute_consumption_by_policy = _POLICY.distribute_consumption_by_policy
+compact_tracking_note = _POLICY.compact_tracking_note
 
 D = Decimal
 
@@ -242,6 +243,33 @@ class DistributionPolicyTests(unittest.TestCase):
         self.assertEqual(result[1]["spillage_consumed"], D("2"))
         self.assertEqual(result[0]["exception_consumed"], D("0"))
         self.assertEqual(result[1]["exception_consumed"], D("0"))
+
+
+
+class TrackingNoteTests(unittest.TestCase):
+    def test_compact_note_stays_within_512(self):
+        note = compact_tracking_note([
+            "Stock Rec", "BO BO-0014", "Start 300", "Return 272",
+            "Consumed 13", "Nominal 20", "SpillAllow 10", "SpillUsed 3",
+            "Exception 0", "JIT 3", "ExAlloc 0", "Policy within_spillage",
+            "Rule price_under_10_or_unknown", "Price 10", "Src stock_item_unit_price"
+        ])
+        self.assertLessEqual(len(note), 512)
+        self.assertTrue(note.startswith("Stock Rec"))
+
+    def test_compact_note_truncates_long_tail(self):
+        note = compact_tracking_note([
+            "Stock Rec",
+            "BO " + ("X" * 300),
+            "Notes " + ("Y" * 500),
+            "OVERRIDE " + ("Z" * 500),
+        ])
+        self.assertLessEqual(len(note), 512)
+        self.assertTrue(note.endswith("..."))
+
+    def test_compact_note_keeps_clean_integers(self):
+        note = compact_tracking_note(["Start 300", "Consumed 12", "JIT 2"])
+        self.assertNotIn(".00000", note)
 
 
 if __name__ == '__main__':

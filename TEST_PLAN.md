@@ -277,3 +277,11 @@ The UI must not describe the exception unit as approved spillage.
 Commit only in a disposable override test. Verify all whole-number quantities are
 shown without trailing `.00000`. Verify planned JIT allocation and exception
 allocation are recorded separately.
+
+## Phase M — v0.3.4 Stock Tracking length regression
+
+- Commit a normal multi-BO reconciliation.
+- Verify each tracking note starts with `Stock Rec`.
+- Verify whole-number quantities do not contain `.00000`.
+- Verify each tracking note is <= 512 characters.
+- In a disposable test, use a long operator note / override reason and confirm the transaction does not fail because of note length.
