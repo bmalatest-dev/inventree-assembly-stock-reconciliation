@@ -1,6 +1,14 @@
-# v0.5.1 — Fair Spillage Distribution and Readable Allocation Review
+# v0.5.2 — Fair Spillage Distribution and Readable Allocation Review
 
-v0.5.1 builds on v0.5.0 without changing the physical-return discrepancy workflow.
+
+## v0.5.2 presentation update
+
+- Allocation Review uses a fixed six-column layout so multiple stock allocations stay inside one cell.
+- Batch code is the primary operator-facing stock identifier; Stock Item ID is secondary audit context.
+- Current-stock and other-stock warnings list the exact BOs and quantities and update with BO selection.
+- No reconciliation or spillage math changed from v0.5.1.
+
+v0.5.2 builds on v0.5.0 without changing the physical-return discrepancy workflow.
 
 ## Changes
 
@@ -11,6 +19,6 @@ v0.5.1 builds on v0.5.0 without changing the physical-return discrepancy workflo
 - Allocation Review now shows Batch ID / Batch Code as the primary Stock Item identifier when available, with the internal Stock Item number shown only as secondary context.
 - Serial is used as the next fallback; Stock Item number is used only when neither Batch nor Serial is available.
 - The reconciliation review table now shows the per-BO spillage / overage attribution explicitly.
-- Cache-busting frontend asset: `assembly_stock_reconciliation_ui_v051.js`.
+- Cache-busting frontend asset: `assembly_stock_reconciliation_ui_v052.js`.
 
 All v0.5.0 behavior remains in place: Build Part names, Part-wide Production BO allocation visibility, exact-current-stock allocation visibility, multiple-stock-item warnings, passive >= $0.50 spillage cap of 20, and below-nominal consume-plus-adjust reconciliation.

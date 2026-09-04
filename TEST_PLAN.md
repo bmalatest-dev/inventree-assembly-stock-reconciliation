@@ -1,4 +1,16 @@
-# v0.5.1 focused validation
+
+## v0.5.2 Allocation Review presentation
+
+1. Open Stock Item #32 / batch `ipn-4`.
+2. Confirm BO-0015 renders `ipn-1`, `ipn-2`, and `ipn-4` vertically inside one Allocated Stock cell.
+3. Confirm `Stock Item #19/#22/#32` appears only as smaller secondary context when batch is present.
+4. Confirm the table remains exactly six columns wide.
+5. With no BOs selected, confirm the current-stock warning explicitly lists BO-0013, BO-0014, BO-0015 and BO-0017 with quantities.
+6. Select BO-0015 and BO-0017 and confirm that current-stock warning shrinks to BO-0013 and BO-0014 only.
+7. Confirm the separate informational warning lists Production BOs that use the Part from other stock items.
+8. Repeat the 450 start / 81 nominal / 350 returned preview and confirm spillage still distributes 10 / 9 across the two selected BOs.
+
+# v0.5.2 focused validation
 
 ## User stress case
 
@@ -28,8 +40,8 @@ For capacities 5 / 20 / 20 and 50 actual extra consumption, planned spillage is 
 ## Allocation Review readability
 
 When batches exist, rows should show entries such as:
-- `ipn-1 — 10 (#19)`
-- `ipn-2 — 19 (#22)`
-- `ipn-4 — 71 ← current (#32)`
+- `ipn-1 — 10` with `Stock Item #19` underneath
+- `ipn-2 — 19` with `Stock Item #22` underneath
+- `ipn-4 — 71 ← current` with `Stock Item #32` underneath
 
 Stock Item numeric IDs remain secondary audit references, not the primary operator-facing identifier.
