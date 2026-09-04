@@ -29,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.4.1"
+    VERSION = "0.4.2"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"

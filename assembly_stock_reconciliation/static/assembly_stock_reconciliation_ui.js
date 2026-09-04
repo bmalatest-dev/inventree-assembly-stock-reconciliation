@@ -127,6 +127,8 @@ function ReconciliationPanel({ context }) {
   const [overrideReason, setOverrideReason] = useState("");
   const [returnLocation, setReturnLocation] = useState("");
   const [returnLocationText, setReturnLocationText] = useState("");
+  const [locationSearch, setLocationSearch] = useState("");
+  const [locationMenuOpen, setLocationMenuOpen] = useState(false);
 
   async function loadContext(resetSelection = false) {
     setLoading(true);
@@ -144,9 +146,15 @@ function ReconciliationPanel({ context }) {
       if (resetSelection) {
         setReturnLocation(result.recommended_return_location ? String(result.recommended_return_location) : "");
         setReturnLocationText(result.recommended_return_location_path || "");
+        setLocationSearch("");
+        setLocationMenuOpen(false);
+        setLocationSearch("");
+        setLocationMenuOpen(false);
       } else if (!returnLocation) {
         setReturnLocation(result.recommended_return_location ? String(result.recommended_return_location) : "");
         setReturnLocationText(result.recommended_return_location_path || "");
+        setLocationSearch("");
+        setLocationMenuOpen(false);
       }
       if (resetSelection) {
         setSelectedBuilds([]);
@@ -237,6 +245,8 @@ function ReconciliationPanel({ context }) {
         setOverrideReason("");
         setReturnLocation("");
         setReturnLocationText("");
+        setLocationSearch("");
+        setLocationMenuOpen(false);
         if (typeof context.reloadInstance === "function") context.reloadInstance();
         if (typeof context.reloadContent === "function") context.reloadContent();
       }
@@ -380,23 +390,81 @@ function ReconciliationPanel({ context }) {
               )
             )
           : null,
-        h("input", {
-          list: `stock-rec-locations-${stockItemId}`,
-          value: returnLocationText,
-          style: { ...styles.input, maxWidth: "600px" },
-          placeholder: "Search or select a Stock Location",
-          onChange: (e) => {
-            invalidatePreview();
-            const text = e.target.value;
-            setReturnLocationText(text);
-            const match = stock.return_locations?.find((loc) => loc.path === text);
-            setReturnLocation(match ? String(match.location) : "");
-          }
-        }),
-        h("datalist", { id: `stock-rec-locations-${stockItemId}` },
-          ...(stock.return_locations || []).map((loc) =>
-            h("option", { key: loc.location, value: loc.path })
-          )
+        h("div", { style: { position: "relative", maxWidth: "700px" } },
+          h("button", {
+            type: "button",
+            style: {
+              ...styles.input,
+              width: "100%",
+              textAlign: "left",
+              cursor: "pointer",
+              background: "var(--mantine-color-body)",
+              minHeight: "38px"
+            },
+            onClick: () => setLocationMenuOpen(!locationMenuOpen)
+          },
+            h("span", null, returnLocationText || "Select a Stock Location"),
+            h("span", { style: { float: "right", opacity: 0.6 } }, "▼")
+          ),
+          locationMenuOpen
+            ? h("div", {
+                style: {
+                  position: "absolute",
+                  zIndex: 50,
+                  top: "calc(100% + 4px)",
+                  left: 0,
+                  right: 0,
+                  border: "1px solid var(--mantine-color-default-border)",
+                  borderRadius: "4px",
+                  background: "var(--mantine-color-body)",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                  maxHeight: "320px",
+                  overflow: "hidden"
+                }
+              },
+                h("div", { style: { padding: "8px", borderBottom: "1px solid var(--mantine-color-default-border)" } },
+                  h("input", {
+                    value: locationSearch,
+                    autoFocus: true,
+                    style: { ...styles.input, width: "100%" },
+                    placeholder: "Search stock locations...",
+                    onChange: (e) => setLocationSearch(e.target.value)
+                  })
+                ),
+                h("div", { style: { maxHeight: "270px", overflowY: "auto" } },
+                  ...((stock.return_locations || [])
+                    .filter((loc) =>
+                      !locationSearch
+                      || String(loc.path || "").toLowerCase().includes(locationSearch.toLowerCase())
+                    )
+                    .map((loc) =>
+                      h("button", {
+                        key: `location-option-${loc.location}`,
+                        type: "button",
+                        style: {
+                          display: "block",
+                          width: "100%",
+                          padding: "8px 10px",
+                          border: "none",
+                          borderBottom: "1px solid rgba(128,128,128,0.12)",
+                          background: String(loc.location) === String(returnLocation)
+                            ? "var(--mantine-color-default-hover)"
+                            : "transparent",
+                          textAlign: "left",
+                          cursor: "pointer"
+                        },
+                        onClick: () => {
+                          invalidatePreview();
+                          setReturnLocation(String(loc.location));
+                          setReturnLocationText(loc.path);
+                          setLocationSearch("");
+                          setLocationMenuOpen(false);
+                        }
+                      }, loc.path)
+                    ))
+                )
+              )
+            : null
         ),
         returnLocation
           ? h("div", { style: { marginTop: "5px", fontSize: "12px", opacity: 0.72 } },
@@ -564,7 +632,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.4.1"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.4.2"}`
     )
   );
 }

@@ -321,3 +321,16 @@ Expected:
 - BO-0013 consumes 15;
 - BO-0014 consumes 13;
 - Stock Tracking contains the reconciliation and location move.
+
+## Phase P — v0.4.2 Return Location Picker UX
+
+1. Open Stock Reconciliation on a Stock Item with a recommended return location.
+2. Confirm the recommendation is preselected.
+3. Click the Return Location field without deleting the recommendation text.
+4. Confirm the full Stock Location list opens immediately.
+5. Confirm nested locations are shown using their full paths.
+6. Type part of a location name/path and verify the list filters.
+7. Select a different location and verify it becomes the selected return location.
+8. Preview reconciliation and verify the selected path is carried into the review.
+9. Verify recent-location shortcut buttons still work.
+10. Commit a controlled reconciliation and confirm backend behavior matches v0.4.1.

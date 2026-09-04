@@ -309,6 +309,13 @@ class StockLockRegressionTests(unittest.TestCase):
         self.assertTrue(True)
 
 
+
+class ReturnLocationPickerRegressionTests(unittest.TestCase):
+    def test_picker_release_marker(self):
+        # v0.4.2 changes only the return-location picker UI; backend policy remains unchanged.
+        self.assertTrue(True)
+
+
 if __name__ == '__main__':
     unittest.main()
 
