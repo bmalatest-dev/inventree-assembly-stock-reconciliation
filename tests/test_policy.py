@@ -14,6 +14,9 @@ aggregate_allocation_policy = _POLICY.aggregate_allocation_policy
 select_effective_price = _POLICY.select_effective_price
 distribute_consumption_by_policy = _POLICY.distribute_consumption_by_policy
 compact_tracking_note = _POLICY.compact_tracking_note
+parse_transient_location_patterns = _POLICY.parse_transient_location_patterns
+location_is_transient = _POLICY.location_is_transient
+recommend_return_location = _POLICY.recommend_return_location
 
 D = Decimal
 
@@ -270,6 +273,32 @@ class TrackingNoteTests(unittest.TestCase):
     def test_compact_note_keeps_clean_integers(self):
         note = compact_tracking_note(["Start 300", "Consumed 12", "JIT 2"])
         self.assertNotIn(".00000", note)
+
+
+
+class ReturnLocationPolicyTests(unittest.TestCase):
+    def test_patterns_are_case_insensitive(self):
+        patterns = parse_transient_location_patterns("out-for-assembly, staging")
+        self.assertTrue(location_is_transient("Warehouse > OUT-FOR-ASSEMBLY-TATE-RX", patterns))
+        self.assertTrue(location_is_transient("Warehouse > Staging", patterns))
+        self.assertFalse(location_is_transient("Warehouse > Component Room", patterns))
+
+    def test_recommends_most_recent_non_transient_location(self):
+        history = [
+            {"location": 4, "path": "Out-for-Assembly-Tate-DIG"},
+            {"location": 3, "path": "Out-for-Assembly-Tate-LO"},
+            {"location": 2, "path": "Out-for-Assembly-Tate-RX"},
+            {"location": 1, "path": "Component Room"},
+        ]
+        result = recommend_return_location(history, ["out-for-assembly"])
+        self.assertEqual(result["location"], 1)
+
+    def test_no_recommendation_when_all_recent_locations_are_transient(self):
+        history = [
+            {"location": 4, "path": "Out-for-Assembly-Tate-DIG"},
+            {"location": 3, "path": "Out-for-Assembly-Tate-LO"},
+        ]
+        self.assertIsNone(recommend_return_location(history, ["out-for-assembly"]))
 
 
 if __name__ == '__main__':

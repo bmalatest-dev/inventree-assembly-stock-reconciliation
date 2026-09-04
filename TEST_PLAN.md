@@ -285,3 +285,20 @@ allocation are recorded separately.
 - Verify whole-number quantities do not contain `.00000`.
 - Verify each tracking note is <= 512 characters.
 - In a disposable test, use a long operator note / override reason and confirm the transaction does not fail because of note length.
+
+## Phase N — v0.4.0 Return Location
+
+1. Put a test Stock Item in a normal storage location (e.g. Component Room).
+2. Move it through at least three temporary `out-for-assembly-*` locations on different dates.
+3. Open Stock Reconciliation.
+4. Verify the last five unique locations are shown with dates where tracking data is available.
+5. Verify the most recent non-transient location is recommended.
+6. Verify clicking a recent location selects it.
+7. Verify another Stock Location can be searched/selected.
+8. Preview and verify the selected Return Location is shown in Review Reconciliation.
+9. Commit a normal reconciliation and verify the remaining returned Stock Item is moved to the selected location.
+10. Verify Stock Tracking contains the reconciliation entry and the native stock-move entry.
+11. Repeat with an above-spillage override and verify the location move remains in the same successful transaction.
+12. Configure `TRANSIENT_LOCATION_PATTERNS` with another temporary-location token and verify recommendation logic changes.
+13. Verify a stock item with no non-transient location history makes no recommendation and requires manual selection.
+14. Verify a zero-return reconciliation does not attempt to move depleted stock.

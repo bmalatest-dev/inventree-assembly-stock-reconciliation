@@ -125,6 +125,8 @@ function ReconciliationPanel({ context }) {
   const [success, setSuccess] = useState("");
   const [overrideChecked, setOverrideChecked] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
+  const [returnLocation, setReturnLocation] = useState("");
+  const [returnLocationText, setReturnLocationText] = useState("");
 
   async function loadContext(resetSelection = false) {
     setLoading(true);
@@ -139,6 +141,13 @@ function ReconciliationPanel({ context }) {
         throw new Error(result?.message || "Could not load reconciliation data.");
       }
       setStock(result);
+      if (resetSelection) {
+        setReturnLocation(result.recommended_return_location ? String(result.recommended_return_location) : "");
+        setReturnLocationText(result.recommended_return_location_path || "");
+      } else if (!returnLocation) {
+        setReturnLocation(result.recommended_return_location ? String(result.recommended_return_location) : "");
+        setReturnLocationText(result.recommended_return_location_path || "");
+      }
       if (resetSelection) {
         setSelectedBuilds([]);
       } else {
@@ -182,7 +191,10 @@ function ReconciliationPanel({ context }) {
       .reduce((sum, b) => sum + Number(b.allocated || 0), 0);
   }, [stock, selectedBuilds]);
 
-  const canPreview = selectedBuilds.length > 0 && returnedQty !== "" && Number(returnedQty) >= 0;
+  const canPreview = selectedBuilds.length > 0
+    && returnedQty !== ""
+    && Number(returnedQty) >= 0
+    && (Number(returnedQty) === 0 || !!returnLocation);
 
   async function runAction(commit, useOverride = false) {
     setSubmitting(true);
@@ -197,7 +209,8 @@ function ReconciliationPanel({ context }) {
           items: [{
             stock_item: stockItemId,
             builds: [...selectedBuilds].sort((a, b) => a - b),
-            returned_quantity: returnedQty
+            returned_quantity: returnedQty,
+            return_location: returnLocation || null
           }]
         }
       };
@@ -222,6 +235,8 @@ function ReconciliationPanel({ context }) {
         setNotes("");
         setOverrideChecked(false);
         setOverrideReason("");
+        setReturnLocation("");
+        setReturnLocationText("");
         if (typeof context.reloadInstance === "function") context.reloadInstance();
         if (typeof context.reloadContent === "function") context.reloadContent();
       }
@@ -250,6 +265,7 @@ function ReconciliationPanel({ context }) {
         h(SummaryStat, { label: "Part", value: stock.part || "—" }),
         h(SummaryStat, { label: "Current Quantity", value: fmt(stock.current_quantity) }),
         h(SummaryStat, { label: "Batch", value: stock.batch || "—" }),
+        h(SummaryStat, { label: "Current Location", value: stock.current_location_path || "—" }),
         h(SummaryStat, { label: "Case / Package", value: stock.case_package || "—" }),
         h(SummaryStat, { label: "Part Pricing Max", value: Number(stock.part_pricing_max || 0) > 0 ? fmt(stock.part_pricing_max) : "—" }),
         h(SummaryStat, { label: "Stock Item Unit Price", value: Number(stock.stock_unit_price || 0) > 0 ? fmt(stock.stock_unit_price) : "—" }),
@@ -328,6 +344,66 @@ function ReconciliationPanel({ context }) {
           setReturnedQty(e.target.value);
         }
       }),
+
+      h("div", { style: { marginTop: "14px" } },
+        h("label", { style: { display: "block", marginBottom: "6px", fontWeight: 600 } },
+          "Return location"
+        ),
+        stock.recommended_return_location
+          ? h("div", { style: { marginBottom: "8px", fontSize: "13px" } },
+              h("strong", null, "Recommended: "),
+              stock.recommended_return_location_path
+            )
+          : h("div", { style: { marginBottom: "8px", fontSize: "13px", opacity: 0.75 } },
+              "No non-temporary location could be identified from recent history. Select a return location."
+            ),
+        stock.recent_locations?.length
+          ? h("div", { style: { marginBottom: "10px", fontSize: "13px" } },
+              h("div", { style: { fontWeight: 600, marginBottom: "4px" } }, "Recent locations"),
+              ...stock.recent_locations.map((loc) =>
+                h("button", {
+                  key: `recent-${loc.location}`,
+                  type: "button",
+                  style: {
+                    ...buttonStyle("secondary", false),
+                    padding: "5px 8px",
+                    margin: "0 6px 6px 0",
+                    fontWeight: loc.recommended ? 700 : 500
+                  },
+                  title: loc.transient ? "Temporary / transient location" : "Recent storage location",
+                  onClick: () => {
+                    invalidatePreview();
+                    setReturnLocation(String(loc.location));
+                    setReturnLocationText(loc.path);
+                  }
+                }, `${loc.path}${loc.date ? ` — ${new Date(loc.date).toLocaleDateString()}` : ""}${loc.recommended ? " (recommended)" : ""}`)
+              )
+            )
+          : null,
+        h("input", {
+          list: `stock-rec-locations-${stockItemId}`,
+          value: returnLocationText,
+          style: { ...styles.input, maxWidth: "600px" },
+          placeholder: "Search or select a Stock Location",
+          onChange: (e) => {
+            invalidatePreview();
+            const text = e.target.value;
+            setReturnLocationText(text);
+            const match = stock.return_locations?.find((loc) => loc.path === text);
+            setReturnLocation(match ? String(match.location) : "");
+          }
+        }),
+        h("datalist", { id: `stock-rec-locations-${stockItemId}` },
+          ...(stock.return_locations || []).map((loc) =>
+            h("option", { key: loc.location, value: loc.path })
+          )
+        ),
+        returnLocation
+          ? h("div", { style: { marginTop: "5px", fontSize: "12px", opacity: 0.72 } },
+              `Selected: ${returnLocationText}`
+            )
+          : null
+      ),
       h("label", { style: { display: "block", margin: "14px 0 6px", fontWeight: 600 } },
         "Operator notes (optional)"
       ),
@@ -358,6 +434,7 @@ function ReconciliationPanel({ context }) {
       h("div", { style: styles.grid },
         h(SummaryStat, { label: "Starting Quantity", value: fmt(itemPreview.current_quantity) }),
         h(SummaryStat, { label: "Returned Quantity", value: fmt(itemPreview.returned_quantity) }),
+        h(SummaryStat, { label: "Return Location", value: itemPreview.return_location_path || "—" }),
         h(SummaryStat, { label: "Selected Allocations", value: fmt(itemPreview.selected_allocation_quantity) }),
         h(SummaryStat, { label: "Calculated Consumption", value: fmt(itemPreview.calculated_consumption) }),
         h(SummaryStat, { label: "Nominal Expected Consumption", value: fmt(itemPreview.nominal_expected_consumption) }),
@@ -487,7 +564,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.3.4"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.4.0"}`
     )
   );
 }

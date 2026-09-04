@@ -7,18 +7,18 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 
 from plugin import InvenTreePlugin
-from plugin.mixins import ActionMixin, UserInterfaceMixin
+from plugin.mixins import ActionMixin, UserInterfaceMixin, SettingsMixin
 
 from build.models import Build, BuildItem
-from stock.models import StockItem
+from stock.models import StockItem, StockLocation
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note, parse_transient_location_patterns, location_is_transient, recommend_return_location
 
 
 D = decimal.Decimal
 
 
-class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTreePlugin):
+class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, SettingsMixin, InvenTreePlugin):
     """Reconcile stock physically returned from external assembly against selected Build Orders."""
 
     NAME = "AssemblyStockReconciliationPlugin"
@@ -29,10 +29,30 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.3.4"
+    VERSION = "0.4.0"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
+
+
+    SETTINGS = {
+        "TRANSIENT_LOCATION_PATTERNS": {
+            "name": "Transient Location Patterns",
+            "description": (
+                "Comma-separated text used to identify temporary locations when suggesting "
+                "where returned stock should be put back. Matching is case-insensitive and "
+                "checks the full location path."
+            ),
+            "default": "out-for-assembly",
+        },
+        "LOCATION_HISTORY_COUNT": {
+            "name": "Recent Locations to Show",
+            "description": "Number of unique recent stock locations shown in Stock Reconciliation.",
+            "default": 5,
+            "validator": int,
+        },
+    }
+
 
     def perform_action(self, user=None, data=None):
         data = data or {}
@@ -327,13 +347,141 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "project_details": project_details,
         }
 
+
+    @staticmethod
+    def _location_path(location):
+        if location is None:
+            return ""
+        return str(getattr(location, "pathstring", None) or getattr(location, "name", None) or location)
+
+    def _transient_location_patterns(self):
+        try:
+            raw = self.get_setting("TRANSIENT_LOCATION_PATTERNS")
+        except Exception:
+            raw = "out-for-assembly"
+        return parse_transient_location_patterns(raw)
+
+    def _location_history_count(self):
+        try:
+            return min(max(int(self.get_setting("LOCATION_HISTORY_COUNT") or 5), 1), 10)
+        except Exception:
+            return 5
+
+    def _recent_location_history(self, stock):
+        """Return newest-first unique location history for a Stock Item."""
+        wanted = self._location_history_count()
+        candidates = []
+
+        # Include the current location first. The matching Stock Tracking move event,
+        # when present, will replace its date with the actual move date below.
+        if getattr(stock, "location_id", None):
+            candidates.append({
+                "location": stock.location_id,
+                "name": getattr(stock.location, "name", "") or str(stock.location),
+                "path": self._location_path(stock.location),
+                "date": None,
+                "_current": True,
+            })
+
+        # Stock move tracking stores the destination location in deltas["location"].
+        # Scan more than the display count because repeated locations are collapsed.
+        try:
+            tracking = list(
+                stock.tracking_info.order_by("-date").values("date", "deltas")[:100]
+            )
+        except Exception:
+            tracking = []
+
+        location_dates = {}
+        location_ids = []
+        for entry in tracking:
+            deltas = entry.get("deltas") or {}
+            loc_id = deltas.get("location") if isinstance(deltas, dict) else None
+            try:
+                loc_id = int(loc_id)
+            except (TypeError, ValueError):
+                continue
+            if loc_id not in location_dates:
+                location_dates[loc_id] = entry.get("date")
+                location_ids.append(loc_id)
+
+        # Make sure the current location is included and gets the latest known date.
+        current_id = getattr(stock, "location_id", None)
+        if current_id and current_id in location_dates:
+            candidates[0]["date"] = location_dates[current_id]
+
+        locations = {
+            loc.pk: loc
+            for loc in StockLocation.objects.filter(pk__in=location_ids)
+        }
+
+        for loc_id in location_ids:
+            if current_id and loc_id == current_id:
+                continue
+            loc = locations.get(loc_id)
+            if not loc:
+                continue
+            candidates.append({
+                "location": loc.pk,
+                "name": getattr(loc, "name", "") or str(loc),
+                "path": self._location_path(loc),
+                "date": location_dates.get(loc_id),
+                "_current": False,
+            })
+
+        # Collapse duplicate locations while preserving newest-first order.
+        unique = []
+        seen = set()
+        for row in candidates:
+            loc_id = row["location"]
+            if loc_id in seen:
+                continue
+            seen.add(loc_id)
+            date = row.get("date")
+            unique.append({
+                "location": loc_id,
+                "name": row["name"],
+                "path": row["path"],
+                "date": date.isoformat() if date else None,
+                "current": bool(row.get("_current")),
+            })
+            if len(unique) >= wanted:
+                break
+
+        patterns = self._transient_location_patterns()
+        recommended = recommend_return_location(unique, patterns)
+        for row in unique:
+            row["transient"] = location_is_transient(row["path"], patterns)
+            row["recommended"] = bool(
+                recommended and row["location"] == recommended["location"]
+            )
+
+        return unique, recommended
+
+    def _available_return_locations(self):
+        """Return selectable Stock Locations for the reconciliation UI."""
+        rows = []
+        try:
+            locations = StockLocation.objects.all().order_by("tree_id", "lft", "name")
+        except Exception:
+            locations = StockLocation.objects.all().order_by("name")
+
+        for loc in locations:
+            rows.append({
+                "location": loc.pk,
+                "name": getattr(loc, "name", "") or str(loc),
+                "path": self._location_path(loc),
+            })
+        return rows
+
+
     def _get_ui_context(self, stock_item_id):
         """Return current stock and remaining Build Order allocations for the UI."""
         if not stock_item_id:
             raise ValidationError({"stock_item": "Stock item ID is required."})
 
         try:
-            stock = StockItem.objects.select_related("part").get(pk=stock_item_id)
+            stock = StockItem.objects.select_related("part", "location").get(pk=stock_item_id)
         except StockItem.DoesNotExist:
             raise ValidationError({
                 "stock_item": f"Stock item {stock_item_id} does not exist."
@@ -370,6 +518,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         ]
 
         part_policy = self._spillage_policy(stock)
+        location_history, recommended_location = self._recent_location_history(stock)
 
         return {
             "ok": True,
@@ -383,6 +532,17 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "ipn": getattr(stock.part, "IPN", None),
             "batch": stock.batch or "",
             "current_quantity": str(D(str(stock.quantity))),
+            "current_location": stock.location_id,
+            "current_location_path": self._location_path(stock.location),
+            "recent_locations": location_history,
+            "recommended_return_location": (
+                recommended_location["location"] if recommended_location else None
+            ),
+            "recommended_return_location_path": (
+                recommended_location["path"] if recommended_location else ""
+            ),
+            "transient_location_patterns": self._transient_location_patterns(),
+            "return_locations": self._available_return_locations(),
             "builds": builds,
             "part_category": part_policy["part_category"],
             "case_package": part_policy["case_package"],
@@ -408,6 +568,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         build_ids = raw.get("builds") or raw.get("build_ids") or []
         returned = self._dec(raw.get("returned_quantity"), "returned_quantity")
         expected_batch = raw.get("batch")
+        return_location_id = raw.get("return_location") or raw.get("return_location_id")
 
         if not stock_item_id:
             raise ValidationError({"stock_item": "Stock item ID is required."})
@@ -416,11 +577,20 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
         if returned < 0:
             raise ValidationError({"returned_quantity": "Returned quantity cannot be negative."})
 
+        return_location = None
+        if return_location_id not in (None, ""):
+            try:
+                return_location = StockLocation.objects.get(pk=int(return_location_id))
+            except (TypeError, ValueError, StockLocation.DoesNotExist):
+                raise ValidationError({"return_location": "Select a valid return Stock Location."})
+        elif returned > 0:
+            raise ValidationError({"return_location": "Select where the returned stock will be stored."})
+
         qs = StockItem.objects
         if lock:
             qs = qs.select_for_update()
         try:
-            stock = qs.select_related("part").get(pk=stock_item_id)
+            stock = qs.select_related("part", "location").get(pk=stock_item_id)
         except StockItem.DoesNotExist:
             raise ValidationError({"stock_item": f"Stock item {stock_item_id} does not exist."})
 
@@ -584,6 +754,10 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
             "batch": stock.batch,
             "current_quantity": str(current_qty),
             "returned_quantity": str(returned),
+            "current_location": stock.location_id,
+            "current_location_path": self._location_path(stock.location),
+            "return_location": return_location.pk if return_location else None,
+            "return_location_path": self._location_path(return_location),
             "selected_allocation_quantity": str(total_allocated),
             "calculated_consumption": str(positive_consume),
             "nominal_expected_consumption": str(policy["nominal_expected_consumption"]),
@@ -617,10 +791,6 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
 
     def _commit_one(self, preview, user, notes, override, override_reason):
         consume_qty = D(preview["calculated_consumption"])
-        if consume_qty <= 0:
-            # No physical consumption is required, so leave stock untouched. Any policy
-            # warning / override remains explicit in the API result.
-            return
 
         grouped = defaultdict(dict)
         for line in preview["consumption_plan"]:
@@ -684,6 +854,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 f"Rule {preview.get('spillage_rule', '')}",
                 f"Price {fmt_decimal(preview.get('effective_price', '0'))}",
                 f"Src {preview.get('price_source', '')}",
+                f"ReturnLoc {preview.get('return_location_path', '')}",
                 f"Selected {selected_bos}",
                 f"Order {allocation_breakdown}",
             ]
@@ -701,3 +872,30 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, InvenTr
                 notes=tracking_note,
                 user=user,
             )
+
+
+        # Move the remaining returned quantity to the operator-selected location.
+        # This happens after build consumption, so the original Stock Item now contains
+        # exactly the physical quantity which came back from assembly.
+        returned_qty = D(str(preview.get("returned_quantity", "0")))
+        return_location_id = preview.get("return_location")
+        if returned_qty > 0 and return_location_id:
+            stock = StockItem.objects.select_for_update().get(pk=preview["stock_item"])
+            destination = StockLocation.objects.get(pk=return_location_id)
+            if stock.location_id != destination.pk:
+                move_note = self._compact_tracking_note([
+                    "Stock Rec",
+                    f"Return location {self._location_path(destination)}",
+                    f"Returned {fmt_decimal(returned_qty)}",
+                ], max_length=512)
+                moved = stock.move(
+                    destination,
+                    notes=move_note,
+                    user=user,
+                )
+                if moved is False:
+                    raise ValidationError(
+                        "Stock reconciliation completed consumption planning but the returned "
+                        "stock could not be moved to the selected return location."
+                    )
+

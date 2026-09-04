@@ -1,15 +1,28 @@
-## v0.3.4 — Compact Stock Tracking audit notes
+## v0.4.0 — Return Location Workflow
 
-v0.3.4 fixes commit failures caused by InvenTree's 512-character Stock Tracking note limit.
+v0.4.0 adds return-location handling to Stock Reconciliation.
+
+- Shows the Stock Item's recent unique location history with dates where available.
+- Suggests the most recent non-transient location as the return destination.
+- Treats configured location-name/path patterns (default: `out-for-assembly`) as transient.
+- Lets the operator select any Stock Location before preview/commit.
+- Moves the remaining returned Stock Item to the selected location in the same database transaction.
+- Records the selected return location in the compact `Stock Rec` audit trail.
+- Preserves all v0.3.4 reconciliation, spillage, override and 512-character audit protections.
+
+
+## v0.4.0 — Compact Stock Tracking audit notes
+
+v0.4.0 fixes commit failures caused by InvenTree's 512-character Stock Tracking note limit.
 
 Tracking notes now use `Stock Rec`, shorter field labels, clean integer formatting,
 and a hard 512-character guard. Long operator notes or override reasons are safely
 truncated instead of causing the reconciliation transaction to fail.
 
 
-## v0.3.4 — Multi-BO exception attribution and audit formatting
+## v0.4.0 — Multi-BO exception attribution and audit formatting
 
-v0.3.4 corrects the multi-BO above-spillage plan.
+v0.4.0 corrects the multi-BO above-spillage plan.
 
 Consumption is now attributed in three deterministic layers:
 
@@ -37,7 +50,7 @@ A whole quantity is recorded as `12`, while a legitimate fractional quantity
 such as `12.5` remains `12.5`.
 
 
-## v0.3.4 — Stock Item price fallback
+## v0.4.0 — Stock Item price fallback
 
 Pricing source priority is now:
 
@@ -49,7 +62,7 @@ The UI shows Part Pricing Max, Stock Item Unit Price, Effective Policy Price,
 Price Source, and Spillage Rule.
 
 
-# v0.3.4 — Just-in-time spillage allocation
+# v0.4.0 — Just-in-time spillage allocation
 
 Operators continue allocating only the normal BOM requirement. If previewed physical consumption is above the existing BO allocation but within planned spillage / overage, the plugin shows the extra allocation required and creates it only on commit, inside the same transaction as native InvenTree consumption.
 
@@ -57,7 +70,7 @@ The review UI now shows nominal expected consumption, planned spillage / overage
 
 # Assembly Stock Reconciliation — InvenTree Plugin
 
-Version: `0.3.4` (manufacturing-policy test release)
+Version: `0.4.0` (manufacturing-policy test release)
 
 Assembly Stock Reconciliation is an InvenTree plugin for reconciling material sent to external assembly against the quantity physically returned.
 
@@ -91,9 +104,9 @@ The user selects the Build Orders relevant to the assembly run. The plugin attri
 - Do not raise the allocation-based over-return warning for that zero-consumption case.
 - Continue to hard-warn if the physical returned quantity exceeds the current InvenTree quantity.
 
-## 0.3.4 manufacturing policy: nominal consumption + spillage / overage
+## 0.4.0 manufacturing policy: nominal consumption + spillage / overage
 
-Version 0.3.4 adds the manufacturing-policy layer recovered from the existing
+Version 0.4.0 adds the manufacturing-policy layer recovered from the existing
 estimating-allocation scripts.
 
 ### Reused spillage engine
@@ -170,7 +183,7 @@ python -m unittest discover -s tests -v
 ### Current limitation
 
 The legacy estimating script also supports an optional external `ignore-spillage.csv` list.
-Version 0.3.4 does not import that external CSV into the live plugin. The core footprint / price
+Version 0.4.0 does not import that external CSV into the live plugin. The core footprint / price
 engine is reused exactly; if the ignore-spillage exception list is still operationally required,
 it should be represented in InvenTree itself (for example as a Part parameter or plugin setting)
 in a follow-on release rather than depending on an external planning CSV.
@@ -393,7 +406,7 @@ external-assembly
 Suggested release:
 
 ```text
-Tag: v0.3.4
+Tag: v0.4.0
 Title: Assembly Stock Reconciliation V1 UI
 ```
 
@@ -425,7 +438,7 @@ Python module: assembly_stock_reconciliation
 Plugin class: AssemblyStockReconciliationPlugin
 Plugin slug: assembly-stock-reconciliation
 Action name: assembly_stock_reconciliation
-Version: 0.3.4
+Version: 0.4.0
 ```
 
 ## Stock tracking audit trail

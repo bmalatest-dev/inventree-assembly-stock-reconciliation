@@ -59,6 +59,32 @@ def compact_tracking_note(parts, max_length=512):
 
 
 
+
+def parse_transient_location_patterns(value):
+    """Normalize configured transient-location match strings."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        raw = value
+    else:
+        raw = str(value).split(",")
+    return [str(x).strip().casefold() for x in raw if str(x).strip()]
+
+
+def location_is_transient(path, patterns):
+    """Return True when a location path matches a configured transient pattern."""
+    text = str(path or "").casefold()
+    return any(pattern in text for pattern in parse_transient_location_patterns(patterns))
+
+
+def recommend_return_location(history, patterns):
+    """Return the newest non-transient location from newest-first history."""
+    for row in history or []:
+        if not location_is_transient(row.get("path") or row.get("name"), patterns):
+            return row
+    return None
+
+
 def normalize_footprint(value: str) -> str:
     """Normalize package text to the footprint tokens used by the legacy engine."""
     text = str(value or "").strip().upper()
