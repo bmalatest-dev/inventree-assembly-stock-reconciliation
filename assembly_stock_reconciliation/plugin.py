@@ -29,7 +29,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.4.0"
+    VERSION = "0.4.1"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -586,11 +586,14 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         elif returned > 0:
             raise ValidationError({"return_location": "Select where the returned stock will be stored."})
 
-        qs = StockItem.objects
-        if lock:
-            qs = qs.select_for_update()
+        # When committing, lock only the StockItem row itself. StockItem.location is
+        # nullable, so combining select_for_update() with select_related("location")
+        # generates an outer join which PostgreSQL refuses to lock.
         try:
-            stock = qs.select_related("part", "location").get(pk=stock_item_id)
+            if lock:
+                stock = StockItem.objects.select_for_update().get(pk=stock_item_id)
+            else:
+                stock = StockItem.objects.select_related("part", "location").get(pk=stock_item_id)
         except StockItem.DoesNotExist:
             raise ValidationError({"stock_item": f"Stock item {stock_item_id} does not exist."})
 

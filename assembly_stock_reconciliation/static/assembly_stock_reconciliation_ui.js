@@ -564,7 +564,7 @@ function ReconciliationPanel({ context }) {
     ) : null,
 
     h("div", { style: { fontSize: "12px", opacity: 0.65 } },
-      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.4.0"}`
+      `Assembly Stock Reconciliation v${context?.context?.plugin_version || "0.4.1"}`
     )
   );
 }

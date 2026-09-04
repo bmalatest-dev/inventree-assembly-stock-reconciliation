@@ -302,3 +302,22 @@ allocation are recorded separately.
 12. Configure `TRANSIENT_LOCATION_PATTERNS` with another temporary-location token and verify recommendation logic changes.
 13. Verify a stock item with no non-transient location history makes no recommendation and requires manual selection.
 14. Verify a zero-return reconciliation does not attempt to move depleted stock.
+
+## Phase O — v0.4.1 PostgreSQL Lock Regression
+
+Repeat the v0.4.0 normal return-location commit:
+
+- Stock Item: IC-Part-NoPrice #31
+- Starting quantity: 300
+- Select BO-0013 and BO-0014
+- Returned quantity: 272
+- Return Location: Main
+
+Expected:
+- preview remains unchanged;
+- commit succeeds without `FOR UPDATE ... nullable side of an outer join`;
+- stock quantity becomes 272;
+- returned stock moves to Main;
+- BO-0013 consumes 15;
+- BO-0014 consumes 13;
+- Stock Tracking contains the reconciliation and location move.

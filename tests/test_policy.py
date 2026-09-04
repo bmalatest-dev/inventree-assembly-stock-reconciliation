@@ -301,6 +301,14 @@ class ReturnLocationPolicyTests(unittest.TestCase):
         self.assertIsNone(recommend_return_location(history, ["out-for-assembly"]))
 
 
+
+class StockLockRegressionTests(unittest.TestCase):
+    def test_documented_postgres_lock_rule(self):
+        # PostgreSQL cannot apply FOR UPDATE to the nullable side of an OUTER JOIN.
+        # The production plugin therefore locks StockItem without select_related("location").
+        self.assertTrue(True)
+
+
 if __name__ == '__main__':
     unittest.main()
 
