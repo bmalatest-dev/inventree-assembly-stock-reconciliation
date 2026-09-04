@@ -102,9 +102,23 @@ def category_is_basic_passive(part_category: str) -> bool:
 
 
 def spillage_per_project(case_package: str, pricing_max, part_category: str = ""):
-    """Exact per-project spillage / overage rule from the estimating scripts."""
+    """Return the per-project spillage / overage allowance.
+
+    Priority order:
+      1. Basic passive with effective unit price >= 0.50 -> 20 pieces,
+         regardless of footprint.
+      2. Existing passive-footprint rules.
+      3. Existing price-band rules.
+      4. Existing missing-price fallbacks.
+    """
     fp = normalize_footprint(case_package)
     price = dec(pricing_max)
+    passive = category_is_basic_passive(part_category)
+
+    # Highest-priority real-world rule: higher-value passives get a capped
+    # allowance independent of package size.
+    if passive and price >= D("0.5"):
+        return D(20), "passive_price_ge_0_50_cap_20"
 
     if price <= 0:
         if category_is_basic_passive(part_category) and fp in PASSIVE_FOOTPRINT_SPILLAGE:
@@ -235,6 +249,30 @@ def distribute_consumption_by_policy(project_details, actual_consumption):
 
     return rows
 
+
+
+def commit_consumption_targets(policy_classification, calculated_consumption, nominal_expected):
+    """Separate BO consumption from physical stock delta for below-nominal overrides.
+
+    Normal reconciliations record the physical calculated consumption. For a
+    below-nominal discrepancy, an explicitly approved commit records the full
+    nominal BO consumption and returns the difference as a positive inventory
+    adjustment so the Stock Item finishes at the physical returned count.
+    """
+    physical = max(D(0), dec(calculated_consumption))
+    nominal = max(D(0), dec(nominal_expected))
+    build_target = physical
+    adjustment = D(0)
+
+    if str(policy_classification) == "below_nominal":
+        build_target = nominal
+        adjustment = max(D(0), build_target - physical)
+
+    return {
+        "physical_consumption": physical,
+        "build_consumption_target": build_target,
+        "inventory_reconciliation_adjustment": adjustment,
+    }
 
 
 def evaluate_policy(*, current_quantity, returned_quantity, selected_allocation,

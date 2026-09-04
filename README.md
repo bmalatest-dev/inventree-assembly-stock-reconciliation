@@ -1,3 +1,29 @@
+# v0.5.0 — Allocation Review and Physical-Return Reconciliation
+
+v0.5.0 incorporates real-world assembly-return feedback while preserving the existing reconciliation, location and audit workflows.
+
+## Changes
+
+- Build Order selectors and consumption plans now show the **Part being built** as well as the BO reference.
+- Adds an **Allocation Review** section showing every Production BO where the reconciled Part has active allocations across any Stock Item.
+- Separately flags Production BOs where the **exact current Stock Item** is allocated but not selected.
+- Flags BOs where **multiple Stock Items of the same Part** are allocated.
+- Allocation diagnostics are informational: operators correct incorrect allocations in InvenTree before reconciliation.
+- For a **below-nominal / higher-than-expected physical return**, explicit override can still record the full nominal consumption against the selected BOs. The discrepancy is then added back as a separate tracked inventory reconciliation adjustment so final InvenTree quantity matches the physical return.
+- Adds the highest-priority spillage rule: **basic passive + effective unit price >= 0.50 = 20 pieces per selected BO, regardless of footprint**.
+- Adds a cache-busting frontend asset `assembly_stock_reconciliation_ui_v050.js`.
+
+## Below-nominal example
+
+Current InvenTree quantity: 300  
+Selected BO nominal consumption: 20  
+Physical quantity returned: 295  
+Physical quantity delta: 5  
+
+With explicit investigated approval, the plugin records 20 against the selected BOs and then records a +15 inventory reconciliation adjustment. Final stock remains 295.
+
+---
+
 ## v0.4.2 — Searchable Return Location Picker
 
 v0.4.2 improves the Return Location UI introduced in v0.4.0.

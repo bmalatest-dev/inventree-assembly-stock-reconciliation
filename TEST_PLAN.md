@@ -1,3 +1,43 @@
+# v0.5.0 focused validation
+
+## Allocation Review
+
+1. Use a Part with allocations on at least two Production BOs across different Stock Items.
+2. Open reconciliation for one Stock Item.
+3. Confirm Allocation Review shows every Production BO using that Part, not only BOs using the current Stock Item.
+4. Confirm the exact current Stock Item is marked `(current)`.
+5. Leave a BO using the current Stock Item unselected and confirm the stronger warning appears.
+6. Leave a BO using only another Stock Item unselected and confirm the general Part-level warning appears.
+
+## Multiple Stock Items on one BO
+
+Allocate two different Stock Items of the same Part to one Production BO. Confirm the BO is flagged `Multiple Stock Items`.
+
+## Build Part display
+
+Confirm both the BO selector and reconciliation consumption plan show BO reference plus the Part being built.
+
+## Higher-than-expected physical return
+
+Example: current quantity 300, selected nominal 20, physical return 295.
+
+Expected preview:
+- Physical Quantity Delta = 5
+- Build Consumption to Record = 20
+- Inventory Reconciliation Adjustment = +15
+- hard warning / explicit override required
+
+Expected commit with override:
+- 20 consumed against selected BO allocations
+- separate +15 stock adjustment tracking entry
+- final Stock Item quantity = 295
+
+## Passive price rule
+
+For Resistor / Capacitor / Inductor categories with effective unit price >= 0.50, confirm planned spillage is 20 per selected BO for 0201, 0402, 0603, 0805 and an unknown footprint. Confirm an active / IC part at 0.50 continues to use the normal price-band rule.
+
+---
+
 # Assembly Stock Reconciliation — v0.3.0 Test Plan
 
 This test plan separates **mechanical stock reconciliation** from **manufacturing-policy validation**.

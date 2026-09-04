@@ -9,6 +9,7 @@ _SPEC = importlib.util.spec_from_file_location("asr_policy", _POLICY_PATH)
 _POLICY = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(_POLICY)
 spillage_per_project = _POLICY.spillage_per_project
+commit_consumption_targets = _POLICY.commit_consumption_targets
 evaluate_policy = _POLICY.evaluate_policy
 aggregate_allocation_policy = _POLICY.aggregate_allocation_policy
 select_effective_price = _POLICY.select_effective_price
@@ -23,20 +24,35 @@ D = Decimal
 
 class SpillageRuleTests(unittest.TestCase):
     def test_passive_0201(self):
-        self.assertEqual(spillage_per_project("0201", 1, "Resistors")[0], D(200))
+        self.assertEqual(spillage_per_project("0201", 0.1, "Resistors")[0], D(200))
 
     def test_passive_0402(self):
-        self.assertEqual(spillage_per_project("0402", 1, "Capacitors")[0], D(100))
+        self.assertEqual(spillage_per_project("0402", 0.1, "Capacitors")[0], D(100))
 
     def test_passive_0603(self):
-        self.assertEqual(spillage_per_project("0603", 1, "Inductors")[0], D(50))
+        self.assertEqual(spillage_per_project("0603", 0.1, "Inductors")[0], D(50))
 
     def test_passive_0805(self):
-        self.assertEqual(spillage_per_project("0805", 1, "Resistors")[0], D(25))
+        self.assertEqual(spillage_per_project("0805", 0.1, "Resistors")[0], D(25))
 
     def test_passive_1206_1210(self):
-        self.assertEqual(spillage_per_project("1206", 1, "Resistors")[0], D(20))
-        self.assertEqual(spillage_per_project("1210", 1, "Resistors")[0], D(20))
+        self.assertEqual(spillage_per_project("1206", 0.1, "Resistors")[0], D(20))
+        self.assertEqual(spillage_per_project("1210", 0.1, "Resistors")[0], D(20))
+
+    def test_high_value_passive_cap_has_top_priority(self):
+        for footprint in ("0201", "0402", "0603", "0805", "1206", "1210", "UNKNOWN"):
+            spill, rule = spillage_per_project(footprint, D("0.50"), "Resistors")
+            self.assertEqual(spill, D(20))
+            self.assertEqual(rule, "passive_price_ge_0_50_cap_20")
+
+        spill, rule = spillage_per_project("0201", D("12.00"), "Capacitors")
+        self.assertEqual(spill, D(20))
+        self.assertEqual(rule, "passive_price_ge_0_50_cap_20")
+
+    def test_high_value_passive_rule_does_not_apply_to_active_parts(self):
+        spill, rule = spillage_per_project("QFN", D("0.50"), "IC")
+        self.assertEqual(spill, D(5))
+        self.assertEqual(rule, "price_under_10_or_unknown")
 
     def test_price_bands(self):
         self.assertEqual(spillage_per_project("QFN", 201, "IC")[0], D(0))
@@ -312,7 +328,7 @@ class StockLockRegressionTests(unittest.TestCase):
 
 class ReturnLocationPickerRegressionTests(unittest.TestCase):
     def test_picker_release_marker(self):
-        # v0.4.2 changes only the return-location picker UI; backend policy remains unchanged.
+        # Return-location helpers remain unchanged by the v0.5.0 allocation / discrepancy additions.
         self.assertTrue(True)
 
 
@@ -335,3 +351,21 @@ class TestJITPolicy(unittest.TestCase):
         self.assertFalse(result["blocking_error"])
         self.assertFalse(result["hard_warning"])
         self.assertEqual(result["policy_classification"], "within_spillage")
+
+
+class CommitTargetTests(unittest.TestCase):
+    def test_below_nominal_consumes_bos_and_adds_back_discrepancy(self):
+        result = commit_consumption_targets("below_nominal", D("5"), D("20"))
+        self.assertEqual(result["physical_consumption"], D("5"))
+        self.assertEqual(result["build_consumption_target"], D("20"))
+        self.assertEqual(result["inventory_reconciliation_adjustment"], D("15"))
+
+    def test_normal_reconciliation_has_no_inventory_adjustment(self):
+        result = commit_consumption_targets("within_nominal", D("20"), D("20"))
+        self.assertEqual(result["build_consumption_target"], D("20"))
+        self.assertEqual(result["inventory_reconciliation_adjustment"], D("0"))
+
+    def test_within_spillage_records_physical_consumption(self):
+        result = commit_consumption_targets("within_spillage", D("24"), D("20"))
+        self.assertEqual(result["build_consumption_target"], D("24"))
+        self.assertEqual(result["inventory_reconciliation_adjustment"], D("0"))

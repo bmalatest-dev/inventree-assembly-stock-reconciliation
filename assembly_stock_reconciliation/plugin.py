@@ -10,9 +10,17 @@ from plugin import InvenTreePlugin
 from plugin.mixins import ActionMixin, UserInterfaceMixin, SettingsMixin
 
 from build.models import Build, BuildItem
+try:
+    from build.status_codes import BuildStatus
+    BUILD_PRODUCTION_STATUS = getattr(BuildStatus.PRODUCTION, "value", BuildStatus.PRODUCTION)
+    if isinstance(BUILD_PRODUCTION_STATUS, (tuple, list)):
+        BUILD_PRODUCTION_STATUS = BUILD_PRODUCTION_STATUS[0]
+    BUILD_PRODUCTION_STATUS = int(BUILD_PRODUCTION_STATUS)
+except Exception:
+    BUILD_PRODUCTION_STATUS = 20
 from stock.models import StockItem, StockLocation
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note, parse_transient_location_patterns, location_is_transient, recommend_return_location
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note, parse_transient_location_patterns, location_is_transient, recommend_return_location, commit_consumption_targets
 
 
 D = decimal.Decimal
@@ -29,7 +37,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.4.2"
+    VERSION = "0.5.0"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -179,7 +187,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             ),
             "icon": "ti:arrows-exchange:outline",
             "source": self.plugin_static_file(
-                "assembly_stock_reconciliation_ui.js:renderPanel"
+                "assembly_stock_reconciliation_ui_v050.js:renderPanel"
             ),
             "context": {
                 "stock_item_id": target_id,
@@ -475,6 +483,81 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         return rows
 
 
+    @staticmethod
+    def _build_part_name(build):
+        """Return a readable name for the Part being built by a Build Order."""
+        part = getattr(build, "part", None)
+        if part is None:
+            return ""
+        return str(getattr(part, "full_name", None) or getattr(part, "name", None) or part)
+
+    def _part_allocation_review(self, stock):
+        """Return Production BO allocation visibility for this exact Part.
+
+        This intentionally looks across *all Stock Items* for the Part. It is a
+        diagnostic aid only: operators must correct any wrong BO / Stock Item
+        allocations in InvenTree before committing reconciliation.
+        """
+        qs = (
+            BuildItem.objects.filter(
+                stock_item__part_id=stock.part_id,
+                quantity__gt=0,
+                build_line__build__status=BUILD_PRODUCTION_STATUS,
+            )
+            .select_related(
+                "stock_item",
+                "build_line",
+                "build_line__build",
+                "build_line__build__part",
+                "build_line__bom_item",
+            )
+            .order_by("build_line__build_id", "stock_item_id", "pk")
+        )
+
+        by_build = defaultdict(lambda: {
+            "allocated": D("0"),
+            "reference": "",
+            "build_part": "",
+            "stock_items": defaultdict(lambda: D("0")),
+        })
+
+        for allocation in qs:
+            build = allocation.build_line.build
+            row = by_build[build.pk]
+            row["reference"] = build.reference
+            row["build_part"] = self._build_part_name(build)
+            qty = D(str(allocation.quantity))
+            row["allocated"] += qty
+            row["stock_items"][allocation.stock_item_id] += qty
+
+        rows = []
+        for build_id, row in sorted(by_build.items(), key=lambda item: item[0]):
+            items = [
+                {
+                    "stock_item": sid,
+                    "allocated": str(qty),
+                    "current_stock_item": sid == stock.pk,
+                }
+                for sid, qty in sorted(row["stock_items"].items())
+            ]
+            current_qty = sum(
+                (D(x["allocated"]) for x in items if x["current_stock_item"]),
+                D("0"),
+            )
+            rows.append({
+                "build": build_id,
+                "reference": row["reference"],
+                "build_part": row["build_part"],
+                "part_allocated": str(row["allocated"]),
+                "stock_items": items,
+                "stock_item_count": len(items),
+                "multiple_stock_items": len(items) > 1,
+                "current_stock_item_allocated": str(current_qty),
+                "uses_current_stock_item": current_qty > 0,
+            })
+
+        return rows
+
     def _get_ui_context(self, stock_item_id):
         """Return current stock and remaining Build Order allocations for the UI."""
         if not stock_item_id:
@@ -491,13 +574,16 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             BuildItem.objects.filter(
                 stock_item=stock,
                 quantity__gt=0,
-            ).select_related("build_line", "build_line__build", "build_line__bom_item")
+            ).select_related(
+                "build_line", "build_line__build", "build_line__build__part", "build_line__bom_item"
+            )
         )
 
         by_build = defaultdict(lambda: {
             "allocated": D("0"),
             "build_items": 0,
             "reference": "",
+            "build_part": "",
         })
 
         for allocation in allocations:
@@ -506,11 +592,13 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             row["allocated"] += D(str(allocation.quantity))
             row["build_items"] += 1
             row["reference"] = build.reference
+            row["build_part"] = self._build_part_name(build)
 
         builds = [
             {
                 "build": build_id,
                 "reference": row["reference"],
+                "build_part": row["build_part"],
                 "allocated": str(row["allocated"]),
                 "build_items": row["build_items"],
             }
@@ -519,6 +607,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
 
         part_policy = self._spillage_policy(stock)
         location_history, recommended_location = self._recent_location_history(stock)
+        part_allocation_review = self._part_allocation_review(stock)
 
         return {
             "ok": True,
@@ -544,6 +633,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             "transient_location_patterns": self._transient_location_patterns(),
             "return_locations": self._available_return_locations(),
             "builds": builds,
+            "part_allocation_review": part_allocation_review,
             "part_category": part_policy["part_category"],
             "case_package": part_policy["case_package"],
             "normalized_footprint": part_policy["normalized_footprint"],
@@ -609,7 +699,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
                 ],
             }
 
-        builds = list(Build.objects.filter(pk__in=build_ids))
+        builds = list(Build.objects.filter(pk__in=build_ids).select_related("part"))
         found_ids = {b.pk for b in builds}
         missing = [bid for bid in build_ids if bid not in found_ids]
 
@@ -617,7 +707,9 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             BuildItem.objects.filter(
                 stock_item=stock,
                 build_line__build_id__in=build_ids,
-            ).select_related("build_line", "build_line__build", "build_line__bom_item")
+            ).select_related(
+                "build_line", "build_line__build", "build_line__build__part", "build_line__bom_item"
+            )
         )
 
         total_allocated = sum((D(str(a.quantity)) for a in allocations), D("0"))
@@ -650,7 +742,28 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         messages.extend(evaluation["messages"])
         positive_consume = evaluation["calculated_consumption"]
 
-        additional_required = max(D("0"), positive_consume - total_allocated)
+        # When the physical return is higher than the selected BOs imply, the
+        # operator may still expressly approve consuming the full nominal BO
+        # requirement. In that case Build consumption and physical inventory
+        # change are deliberately separated: consume nominal against the BOs,
+        # then add back the discrepancy as a tracked stock adjustment so the
+        # Stock Item finishes at the physical returned quantity.
+        commit_targets = commit_consumption_targets(
+            evaluation["policy_classification"],
+            positive_consume,
+            policy["nominal_expected_consumption"],
+        )
+        build_consumption_target = commit_targets["build_consumption_target"]
+        inventory_reconciliation_adjustment = commit_targets["inventory_reconciliation_adjustment"]
+        if inventory_reconciliation_adjustment > 0:
+            messages.append(
+                f"With explicit override, commit will consume {fmt_decimal(build_consumption_target)} "
+                f"against the selected Build Orders and then add back "
+                f"{fmt_decimal(inventory_reconciliation_adjustment)} as a tracked inventory "
+                "reconciliation adjustment so final stock matches the physical return."
+            )
+
+        additional_required = max(D("0"), build_consumption_target - total_allocated)
         extra_capacity = self._extra_allocation_capacity(stock)
         if additional_required > extra_capacity:
             blocking_error = True
@@ -665,7 +778,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
 
         distribution = distribute_consumption_by_policy(
             policy["project_details"],
-            positive_consume,
+            build_consumption_target,
         )
 
         plan = []
@@ -673,7 +786,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         exception_allocation_total = D("0")
         planned_spillage_consumed_total = D("0")
         exception_consumed_total = D("0")
-        unattributed = positive_consume
+        unattributed = build_consumption_target
 
         for detail in distribution:
             line_id = int(detail["build_line"])
@@ -719,6 +832,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
                         "build_line": line_id,
                         "build": allocation.build_line.build_id,
                         "build_reference": allocation.build_line.build.reference,
+                        "build_part": self._build_part_name(allocation.build_line.build),
                         "allocated": str(existing),
                         "nominal_consumed": str(nominal_consumed),
                         "planned_spillage_consumed": str(spillage_consumed),
@@ -763,6 +877,8 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             "return_location_path": self._location_path(return_location),
             "selected_allocation_quantity": str(total_allocated),
             "calculated_consumption": str(positive_consume),
+            "build_consumption_target": str(build_consumption_target),
+            "inventory_reconciliation_adjustment": str(inventory_reconciliation_adjustment),
             "nominal_expected_consumption": str(policy["nominal_expected_consumption"]),
             "planned_spillage_per_project": str(policy["spillage_per_project"]),
             "planned_spillage_allowance": str(max(D("0"), policy["acceptable_consumption_max"] - policy["nominal_expected_consumption"])),
@@ -786,6 +902,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             "price_source": policy["price_source"],
             "pricing_max": str(policy["pricing_max"]),
             "policy_projects": policy["project_details"],
+            "part_allocation_review": self._part_allocation_review(stock),
             "hard_warning": hard_warning,
             "blocking_error": blocking_error,
             "messages": messages,
@@ -793,7 +910,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         }
 
     def _commit_one(self, preview, user, notes, override, override_reason):
-        consume_qty = D(preview["calculated_consumption"])
+        consume_qty = D(preview.get("build_consumption_target", preview["calculated_consumption"]))
 
         grouped = defaultdict(dict)
         for line in preview["consumption_plan"]:
@@ -851,6 +968,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
                 f"SpillAllow {fmt_decimal(preview.get('planned_spillage_allowance', '0'))}",
                 f"SpillUsed {fmt_decimal(this_build_spillage_consumed)}",
                 f"Exception {fmt_decimal(this_build_exception_consumed)}",
+                f"InvAdj {fmt_decimal(preview.get('inventory_reconciliation_adjustment', '0'))}",
                 f"JIT {fmt_decimal(this_build_planned_jit)}",
                 f"ExAlloc {fmt_decimal(this_build_exception_allocation)}",
                 f"Policy {preview.get('policy_classification', '')}",
@@ -876,6 +994,26 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
                 user=user,
             )
 
+        # A below-nominal override intentionally records the full selected BO
+        # consumption, then restores the physical discrepancy as a separate,
+        # auditable stock adjustment. This preserves both manufacturing genealogy
+        # and the operator's physical return count.
+        adjustment = D(str(preview.get("inventory_reconciliation_adjustment", "0")))
+        if adjustment > 0:
+            stock = StockItem.objects.select_for_update().get(pk=preview["stock_item"])
+            adjustment_note = self._compact_tracking_note([
+                "Stock Rec",
+                f"Inventory reconciliation +{fmt_decimal(adjustment)}",
+                f"Physical delta {fmt_decimal(preview.get('calculated_consumption', '0'))}",
+                f"BO consumption {fmt_decimal(preview.get('build_consumption_target', '0'))}",
+                f"Return {fmt_decimal(preview.get('returned_quantity', '0'))}",
+                f"OVERRIDE {override_reason}" if override_reason else "",
+            ], max_length=512)
+            if stock.add_stock(adjustment, user, notes=adjustment_note) is False:
+                raise ValidationError(
+                    "Build consumption was recorded but the inventory reconciliation "
+                    "adjustment could not be applied."
+                )
 
         # Move the remaining returned quantity to the operator-selected location.
         # This happens after build consumption, so the original Stock Item now contains
