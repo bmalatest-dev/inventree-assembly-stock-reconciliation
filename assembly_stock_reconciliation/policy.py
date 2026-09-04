@@ -191,16 +191,86 @@ def aggregate_allocation_policy(lines, spillage_per_project):
 
 
 
+def _is_integral_decimal(value):
+    value = dec(value)
+    return value == value.to_integral_value()
+
+
+def _fair_share_with_caps(total, capacities, order):
+    """Split ``total`` as evenly as possible across BO capacities.
+
+    Whole-piece quantities are distributed deterministically in ``order`` so an
+    odd remainder such as 19 pieces across two BOs becomes 10 / 9. If any
+    quantity is fractional, Decimal equal-share water filling is used instead.
+    """
+    total = max(D(0), dec(total))
+    caps = {key: max(D(0), dec(capacities.get(key, 0))) for key in order}
+    target = min(total, sum(caps.values(), D(0)))
+    result = {key: D(0) for key in order}
+    if target <= 0 or not order:
+        return result
+
+    integral = _is_integral_decimal(target) and all(_is_integral_decimal(c) for c in caps.values())
+
+    if integral:
+        remaining = int(target)
+        while remaining > 0:
+            eligible = [key for key in order if result[key] < caps[key]]
+            if not eligible:
+                break
+            base = remaining // len(eligible)
+            if base > 0:
+                moved = 0
+                for key in eligible:
+                    available = int(caps[key] - result[key])
+                    give = min(base, available)
+                    if give > 0:
+                        result[key] += D(give)
+                        remaining -= give
+                        moved += give
+                if moved > 0:
+                    continue
+            # Fewer pieces remain than eligible BOs: assign one each in BO order.
+            for key in eligible:
+                if remaining <= 0:
+                    break
+                if result[key] < caps[key]:
+                    result[key] += D(1)
+                    remaining -= 1
+        return result
+
+    remaining = target
+    # Decimal water filling for fractional stock quantities.
+    while remaining > 0:
+        eligible = [key for key in order if result[key] < caps[key]]
+        if not eligible:
+            break
+        share = remaining / D(len(eligible))
+        moved = D(0)
+        for key in eligible:
+            available = caps[key] - result[key]
+            give = min(share, available)
+            if give > 0:
+                result[key] += give
+                moved += give
+        if moved <= 0:
+            break
+        remaining -= moved
+
+    return result
+
+
 def distribute_consumption_by_policy(project_details, actual_consumption):
-    """Distribute consumption in deterministic BO order using policy layers.
+    """Distribute consumption across selected BOs using policy layers.
 
-    Order of attribution:
-      1. Nominal requirement for each selected BO, in BO order.
-      2. Planned spillage allowance for each selected BO, in BO order.
-      3. Exception consumption above all planned allowances, in BO order.
-
-    This prevents an above-spillage exception from being dumped onto the first BO
-    before the other selected BOs receive their own nominal / planned allowance.
+    Attribution order:
+      1. Nominal requirement for each selected BO / line, in BO order.
+      2. Actual planned spillage is split as evenly as possible across the
+         selected BOs, constrained by each BO's remaining spillage allowance.
+         For integer pieces, odd remainders are assigned one piece at a time in
+         deterministic BO order (e.g. 19 across two BOs -> 10 / 9).
+      3. Consumption above the combined planned allowance remains explicit
+         exception consumption and requires the existing override workflow.
     """
     details = [dict(x) for x in project_details]
     details.sort(key=lambda x: (int(x.get("build", 0)), int(x.get("build_line", 0))))
@@ -220,7 +290,7 @@ def distribute_consumption_by_policy(project_details, actual_consumption):
             "exception_consumed": D(0),
         })
 
-    # Phase 1: satisfy nominal consumption across all selected BOs first.
+    # Phase 1: nominal consumption first.
     for row in rows:
         if remaining <= 0:
             break
@@ -228,15 +298,32 @@ def distribute_consumption_by_policy(project_details, actual_consumption):
         row["nominal_consumed"] = qty
         remaining -= qty
 
-    # Phase 2: use planned spillage only after nominal attribution is complete.
-    for row in rows:
-        if remaining <= 0:
-            break
-        qty = min(remaining, row["spillage_capacity"])
-        row["spillage_consumed"] = qty
-        remaining -= qty
+    # Phase 2: distribute actual spillage evenly by BO, not by first allocation.
+    if remaining > 0:
+        build_order = []
+        build_caps = {}
+        for row in rows:
+            build = int(row.get("build", 0))
+            if build not in build_caps:
+                build_order.append(build)
+                build_caps[build] = D(0)
+            build_caps[build] += row["spillage_capacity"]
 
-    # Phase 3: anything else is explicit exception consumption.
+        planned_spillage_total = min(remaining, sum(build_caps.values(), D(0)))
+        by_build = _fair_share_with_caps(planned_spillage_total, build_caps, build_order)
+
+        for build in build_order:
+            left = by_build.get(build, D(0))
+            for row in rows:
+                if int(row.get("build", 0)) != build or left <= 0:
+                    continue
+                qty = min(left, row["spillage_capacity"])
+                row["spillage_consumed"] = qty
+                left -= qty
+
+        remaining -= planned_spillage_total
+
+    # Phase 3: anything beyond all planned allowances is explicit exception.
     for row in rows:
         if remaining <= 0:
             break

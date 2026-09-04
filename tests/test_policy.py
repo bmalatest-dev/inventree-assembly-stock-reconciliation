@@ -242,7 +242,7 @@ class DistributionPolicyTests(unittest.TestCase):
         self.assertEqual(result[0]["spillage_consumed"], D("0"))
         self.assertEqual(result[1]["spillage_consumed"], D("0"))
 
-    def test_within_spillage_uses_each_bo_allowance_in_order(self):
+    def test_within_spillage_is_evenly_distributed_across_bos(self):
         details = [
             {
                 "build": 13, "build_line": 130,
@@ -256,12 +256,40 @@ class DistributionPolicyTests(unittest.TestCase):
             },
         ]
         result = distribute_consumption_by_policy(details, D("27"))
-        self.assertEqual(result[0]["total_consumption"], D("15"))
-        self.assertEqual(result[1]["total_consumption"], D("12"))
-        self.assertEqual(result[0]["spillage_consumed"], D("5"))
-        self.assertEqual(result[1]["spillage_consumed"], D("2"))
-        self.assertEqual(result[0]["exception_consumed"], D("0"))
-        self.assertEqual(result[1]["exception_consumed"], D("0"))
+        self.assertEqual(result[0]["spillage_consumed"], D("4"))
+        self.assertEqual(result[1]["spillage_consumed"], D("3"))
+        self.assertEqual(result[0]["total_consumption"], D("14"))
+        self.assertEqual(result[1]["total_consumption"], D("13"))
+
+    def test_user_case_19_spillage_across_two_bos_is_10_9(self):
+        details = [
+            {"build": 15, "build_line": 150, "nominal_expected_from_selected_stock": D("71"), "acceptable_consumption_max": D("171")},
+            {"build": 17, "build_line": 170, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("110")},
+        ]
+        result = distribute_consumption_by_policy(details, D("100"))
+        self.assertEqual(result[0]["spillage_consumed"], D("10"))
+        self.assertEqual(result[1]["spillage_consumed"], D("9"))
+        self.assertEqual(result[0]["total_consumption"], D("81"))
+        self.assertEqual(result[1]["total_consumption"], D("19"))
+
+    def test_three_bo_50_spillage_is_17_17_16(self):
+        details = [
+            {"build": 1, "build_line": 10, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("30")},
+            {"build": 2, "build_line": 20, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("30")},
+            {"build": 3, "build_line": 30, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("30")},
+        ]
+        result = distribute_consumption_by_policy(details, D("80"))
+        self.assertEqual([r["spillage_consumed"] for r in result], [D("17"), D("17"), D("16")])
+
+    def test_spillage_distribution_respects_individual_caps(self):
+        details = [
+            {"build": 1, "build_line": 10, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("15")},
+            {"build": 2, "build_line": 20, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("30")},
+            {"build": 3, "build_line": 30, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("30")},
+        ]
+        result = distribute_consumption_by_policy(details, D("80"))
+        self.assertEqual([r["spillage_consumed"] for r in result], [D("5"), D("20"), D("20")])
+        self.assertEqual(sum((r["exception_consumed"] for r in result), D("0")), D("5"))
 
 
 
@@ -328,7 +356,7 @@ class StockLockRegressionTests(unittest.TestCase):
 
 class ReturnLocationPickerRegressionTests(unittest.TestCase):
     def test_picker_release_marker(self):
-        # Return-location helpers remain unchanged by the v0.5.0 allocation / discrepancy additions.
+        # Return-location helpers remain unchanged by the v0.5.1 allocation / discrepancy additions.
         self.assertTrue(True)
 
 

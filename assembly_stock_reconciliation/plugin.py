@@ -37,7 +37,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.5.0"
+    VERSION = "0.5.1"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -187,7 +187,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             ),
             "icon": "ti:arrows-exchange:outline",
             "source": self.plugin_static_file(
-                "assembly_stock_reconciliation_ui_v050.js:renderPanel"
+                "assembly_stock_reconciliation_ui_v051.js:renderPanel"
             ),
             "context": {
                 "stock_item_id": target_id,
@@ -518,7 +518,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             "allocated": D("0"),
             "reference": "",
             "build_part": "",
-            "stock_items": defaultdict(lambda: D("0")),
+            "stock_items": {},
         })
 
         for allocation in qs:
@@ -528,18 +528,34 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             row["build_part"] = self._build_part_name(build)
             qty = D(str(allocation.quantity))
             row["allocated"] += qty
-            row["stock_items"][allocation.stock_item_id] += qty
+
+            sid = allocation.stock_item_id
+            if sid not in row["stock_items"]:
+                si = allocation.stock_item
+                batch = str(getattr(si, "batch", "") or "").strip()
+                serial = str(getattr(si, "serial", "") or "").strip()
+                row["stock_items"][sid] = {
+                    "allocated": D("0"),
+                    "batch": batch,
+                    "serial": serial,
+                }
+            row["stock_items"][sid]["allocated"] += qty
 
         rows = []
         for build_id, row in sorted(by_build.items(), key=lambda item: item[0]):
-            items = [
-                {
+            items = []
+            for sid, info in sorted(row["stock_items"].items()):
+                batch = info["batch"]
+                serial = info["serial"]
+                identifier = batch or serial or f"Stock #{sid}"
+                items.append({
                     "stock_item": sid,
-                    "allocated": str(qty),
+                    "batch": batch,
+                    "serial": serial,
+                    "identifier": identifier,
+                    "allocated": str(info["allocated"]),
                     "current_stock_item": sid == stock.pk,
-                }
-                for sid, qty in sorted(row["stock_items"].items())
-            ]
+                })
             current_qty = sum(
                 (D(x["allocated"]) for x in items if x["current_stock_item"]),
                 D("0"),
