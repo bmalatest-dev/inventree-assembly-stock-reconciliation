@@ -18,6 +18,7 @@ compact_tracking_note = _POLICY.compact_tracking_note
 parse_transient_location_patterns = _POLICY.parse_transient_location_patterns
 location_is_transient = _POLICY.location_is_transient
 recommend_return_location = _POLICY.recommend_return_location
+is_basic_passive_identity = _POLICY.is_basic_passive_identity
 
 D = Decimal
 
@@ -52,7 +53,7 @@ class SpillageRuleTests(unittest.TestCase):
     def test_high_value_passive_rule_does_not_apply_to_active_parts(self):
         spill, rule = spillage_per_project("QFN", D("0.50"), "IC")
         self.assertEqual(spill, D(5))
-        self.assertEqual(rule, "price_under_10_or_unknown")
+        self.assertEqual(rule, "price_10_or_less")
 
     def test_price_bands(self):
         self.assertEqual(spillage_per_project("QFN", 201, "IC")[0], D(0))
@@ -397,3 +398,45 @@ class CommitTargetTests(unittest.TestCase):
         result = commit_consumption_targets("within_spillage", D("24"), D("20"))
         self.assertEqual(result["build_consumption_target"], D("24"))
         self.assertEqual(result["inventory_reconciliation_adjustment"], D("0"))
+
+
+class V053RegressionTests(unittest.TestCase):
+    def test_passive_identity_can_come_from_part_name_not_category(self):
+        self.assertTrue(is_basic_passive_identity("Generic Parts", "test-resistor-50", "", ""))
+        self.assertTrue(is_basic_passive_identity("Parts > Passives", "ABC", "", ""))
+        self.assertFalse(is_basic_passive_identity("Generic Parts", "IC-Part", "", "QFN amplifier"))
+
+    def test_passive_hint_at_exact_050_overrides_0402_footprint(self):
+        spill, rule = spillage_per_project("0402", D("0.50"), "Generic Components", passive_hint=True)
+        self.assertEqual(spill, D("20"))
+        self.assertEqual(rule, "passive_price_ge_0_50_cap_20")
+
+    def test_three_exception_pieces_split_two_one_across_two_bos(self):
+        details = [
+            {
+                "build": 18, "build_line": 180,
+                "nominal_expected_from_selected_stock": D("50"),
+                "acceptable_consumption_max": D("52"),
+            },
+            {
+                "build": 19, "build_line": 190,
+                "nominal_expected_from_selected_stock": D("10"),
+                "acceptable_consumption_max": D("12"),
+            },
+        ]
+        result = distribute_consumption_by_policy(details, D("67"))
+        self.assertEqual(result[0]["spillage_consumed"], D("2"))
+        self.assertEqual(result[1]["spillage_consumed"], D("2"))
+        self.assertEqual(result[0]["exception_consumed"], D("2"))
+        self.assertEqual(result[1]["exception_consumed"], D("1"))
+        self.assertEqual(result[0]["total_consumption"], D("54"))
+        self.assertEqual(result[1]["total_consumption"], D("13"))
+
+    def test_seven_exception_pieces_split_three_two_two_across_three_bos(self):
+        details = [
+            {"build": 1, "build_line": 10, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("10")},
+            {"build": 2, "build_line": 20, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("10")},
+            {"build": 3, "build_line": 30, "nominal_expected_from_selected_stock": D("10"), "acceptable_consumption_max": D("10")},
+        ]
+        result = distribute_consumption_by_policy(details, D("37"))
+        self.assertEqual([r["exception_consumed"] for r in result], [D("3"), D("2"), D("2")])

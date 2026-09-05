@@ -1,47 +1,16 @@
+# v0.5.3 Test Plan
 
-## v0.5.2 Allocation Review presentation
+## Passive $0.50 priority rule
+Use a resistor with footprint 0402 and effective price exactly 0.50. Expected: Planned Spillage / BO = 20 and rule `passive_price_ge_0_50_cap_20`, not footprint_0402.
 
-1. Open Stock Item #32 / batch `ipn-4`.
-2. Confirm BO-0015 renders `ipn-1`, `ipn-2`, and `ipn-4` vertically inside one Allocated Stock cell.
-3. Confirm `Stock Item #19/#22/#32` appears only as smaller secondary context when batch is present.
-4. Confirm the table remains exactly six columns wide.
-5. With no BOs selected, confirm the current-stock warning explicitly lists BO-0013, BO-0014, BO-0015 and BO-0017 with quantities.
-6. Select BO-0015 and BO-0017 and confirm that current-stock warning shrinks to BO-0013 and BO-0014 only.
-7. Confirm the separate informational warning lists Production BOs that use the Part from other stock items.
-8. Repeat the 450 start / 81 nominal / 350 returned preview and confirm spillage still distributes 10 / 9 across the two selected BOs.
+For a starting quantity of 500, nominal allocation 10 and physical return 470: nominal = 10, actual spillage = 20, max acceptable consumption = 30, exception = 0.
 
-# v0.5.2 focused validation
+## Multi-BO above-policy exception
+Two BOs with nominal allocations 50 and 10, spillage allowance 2 each, physical consumption 67. Expected: planned spillage 2 / 2 and exception distribution 2 / 1, for total consumption 54 / 13.
 
-## User stress case
+## Policy-specific warning text
+- below_nominal: warning must explain nominal BO consumption plus positive inventory reconciliation add-back.
+- above_spillage_allowance: warning must explain consumption beyond nominal + permitted spillage and the additional exception allocation. It must not describe a higher-than-expected physical return.
 
-Stock Item batch `ipn-4`, quantity 450, selected allocations:
-- BO-0015 = 71
-- BO-0017 = 10
-- nominal total = 81
-
-### Return 369
-Expected: physical consumption 81; BO-0015 consumes 71, BO-0017 consumes 10; no JIT; no adjustment.
-
-### Return 400
-Expected: physical consumption 50; hard warning; approved commit target 81; inventory reconciliation adjustment +31; no spillage.
-
-### Return 350
-Expected: physical consumption 100; actual spillage 19. Spillage must be split evenly across the two selected BOs as 10 / 9 (deterministic BO order), not 19 / 0.
-Expected plan:
-- BO-0015: existing 71 + spillage/JIT 10 = consume 81
-- BO-0017: existing 10 + spillage/JIT 9 = consume 19
-- total consume 100
-
-## Cap-aware distribution
-
-For three BOs with 20 spillage allowance each and 50 actual spillage, expect 17 / 17 / 16.
-For capacities 5 / 20 / 20 and 50 actual extra consumption, planned spillage is 5 / 20 / 20 and the remaining 5 is exception quantity.
-
-## Allocation Review readability
-
-When batches exist, rows should show entries such as:
-- `ipn-1 — 10` with `Stock Item #19` underneath
-- `ipn-2 — 19` with `Stock Item #22` underneath
-- `ipn-4 — 71 ← current` with `Stock Item #32` underneath
-
-Stock Item numeric IDs remain secondary audit references, not the primary operator-facing identifier.
+## Regression
+Re-run normal nominal, within-spillage, below-nominal override, allocation review, multiple-stock-item warning, return-location recommendation, and prior tracking-note tests.

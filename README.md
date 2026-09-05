@@ -1,24 +1,11 @@
-# v0.5.2 — Fair Spillage Distribution and Readable Allocation Review
+# InvenTree Assembly Stock Reconciliation
 
+Version **0.5.3**.
 
-## v0.5.2 presentation update
+This release keeps the v0.5.2 reconciliation workflow and adds three fixes found during live validation:
 
-- Allocation Review uses a fixed six-column layout so multiple stock allocations stay inside one cell.
-- Batch code is the primary operator-facing stock identifier; Stock Item ID is secondary audit context.
-- Current-stock and other-stock warnings list the exact BOs and quantities and update with BO selection.
-- No reconciliation or spillage math changed from v0.5.1.
+- Passive identification is no longer dependent only on Part Category. Resistor / capacitor / inductor / passive identity text from the Part itself is also considered, so a $0.50+ passive receives the 20-piece-per-BO cap even when it lives in a generic category.
+- Above-policy exception quantities are distributed evenly across selected Build Orders after normal spillage capacity is exhausted. Remainders are deterministic in BO order (for example, 3 across 2 BOs becomes 2 / 1).
+- HARD WARNING text is policy-specific. Below-nominal cases describe the inventory reconciliation add-back; above-spillage cases describe exception allocation / consumption.
 
-v0.5.2 builds on v0.5.0 without changing the physical-return discrepancy workflow.
-
-## Changes
-
-- Actual spillage / overage is now distributed as evenly as possible across the selected Build Orders instead of being assigned to the first BO.
-- The distribution remains capped by each BO's individual remaining spillage allowance.
-- For whole-piece quantities, odd remainders are assigned deterministically in BO order (for example 19 pieces across two BOs becomes 10 / 9).
-- Any quantity beyond the combined permitted spillage remains exception quantity and uses the existing explicit-override workflow.
-- Allocation Review now shows Batch ID / Batch Code as the primary Stock Item identifier when available, with the internal Stock Item number shown only as secondary context.
-- Serial is used as the next fallback; Stock Item number is used only when neither Batch nor Serial is available.
-- The reconciliation review table now shows the per-BO spillage / overage attribution explicitly.
-- Cache-busting frontend asset: `assembly_stock_reconciliation_ui_v052.js`.
-
-All v0.5.0 behavior remains in place: Build Part names, Part-wide Production BO allocation visibility, exact-current-stock allocation visibility, multiple-stock-item warnings, passive >= $0.50 spillage cap of 20, and below-nominal consume-plus-adjust reconciliation.
+The exact-$10 price-band rule is also labeled `price_10_or_less` for clarity.

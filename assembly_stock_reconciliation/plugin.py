@@ -20,7 +20,7 @@ except Exception:
     BUILD_PRODUCTION_STATUS = 20
 from stock.models import StockItem, StockLocation
 
-from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note, parse_transient_location_patterns, location_is_transient, recommend_return_location, commit_consumption_targets
+from .policy import normalize_footprint, spillage_per_project, evaluate_policy, aggregate_allocation_policy, fmt_decimal, select_effective_price, distribute_consumption_by_policy, compact_tracking_note, parse_transient_location_patterns, location_is_transient, recommend_return_location, commit_consumption_targets, is_basic_passive_identity
 
 
 D = decimal.Decimal
@@ -37,7 +37,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         "Reconcile returned stock against selected Build Order allocations and consume the "
         "difference using InvenTree's native build allocation consumption workflow."
     )
-    VERSION = "0.5.2"
+    VERSION = "0.5.3"
     MIN_VERSION = "1.4.0"
     LICENSE = "MIT"
     ACTION_NAME = "assembly_stock_reconciliation"
@@ -187,7 +187,7 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
             ),
             "icon": "ti:arrows-exchange:outline",
             "source": self.plugin_static_file(
-                "assembly_stock_reconciliation_ui_v052.js:renderPanel"
+                "assembly_stock_reconciliation_ui_v053.js:renderPanel"
             ),
             "context": {
                 "stock_item_id": target_id,
@@ -201,6 +201,21 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         if not category:
             return ""
         return str(getattr(category, "pathstring", None) or getattr(category, "name", None) or category)
+
+    @staticmethod
+    def _part_is_basic_passive(part, category_text=""):
+        """Identify resistor / capacitor / inductor / passive parts robustly.
+
+        Production data does not always place passives in a dedicated category,
+        so inspect operator-visible Part identity fields as well as category.
+        """
+        return is_basic_passive_identity(
+            category_text,
+            getattr(part, "name", ""),
+            getattr(part, "IPN", ""),
+            getattr(part, "description", ""),
+            getattr(part, "full_name", ""),
+        )
 
     @staticmethod
     def _part_parameter_map(part):
@@ -264,14 +279,17 @@ class AssemblyStockReconciliationPlugin(ActionMixin, UserInterfaceMixin, Setting
         stock_unit_price = self._stock_unit_price(stock)
         selected = select_effective_price(part_pricing_max, stock_unit_price)
 
+        passive = self._part_is_basic_passive(part, category)
         spill, rule = spillage_per_project(
             case_package,
             selected["effective_price"],
             category,
+            passive_hint=passive,
         )
 
         return {
             "part_category": category,
+            "basic_passive": passive,
             "case_package": case_package,
             "normalized_footprint": normalize_footprint(case_package),
             "part_pricing_max": part_pricing_max,

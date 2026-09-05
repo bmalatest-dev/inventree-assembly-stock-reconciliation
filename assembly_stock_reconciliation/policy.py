@@ -96,12 +96,21 @@ def normalize_footprint(value: str) -> str:
 
 
 def category_is_basic_passive(part_category: str) -> bool:
-    """Match the legacy definition: resistor / capacitor / inductor categories."""
-    text = str(part_category or "").strip().lower()
-    return any(word in text for word in ["resistor", "capacitor", "inductor"])
+    """Backward-compatible passive check for a single text value."""
+    return is_basic_passive_identity(part_category)
 
 
-def spillage_per_project(case_package: str, pricing_max, part_category: str = ""):
+def is_basic_passive_identity(*values) -> bool:
+    """Identify resistor / capacitor / inductor / generic passive identity text.
+
+    This intentionally accepts multiple operator-visible Part fields because
+    production data does not always place passives in a dedicated Part Category.
+    """
+    text = " ".join(str(value or "") for value in values).casefold()
+    return any(token in text for token in ("resistor", "capacitor", "inductor", "passive"))
+
+
+def spillage_per_project(case_package: str, pricing_max, part_category: str = "", passive_hint=None):
     """Return the per-project spillage / overage allowance.
 
     Priority order:
@@ -113,7 +122,7 @@ def spillage_per_project(case_package: str, pricing_max, part_category: str = ""
     """
     fp = normalize_footprint(case_package)
     price = dec(pricing_max)
-    passive = category_is_basic_passive(part_category)
+    passive = category_is_basic_passive(part_category) if passive_hint is None else bool(passive_hint)
 
     # Highest-priority real-world rule: higher-value passives get a capped
     # allowance independent of package size.
@@ -121,9 +130,9 @@ def spillage_per_project(case_package: str, pricing_max, part_category: str = ""
         return D(20), "passive_price_ge_0_50_cap_20"
 
     if price <= 0:
-        if category_is_basic_passive(part_category) and fp in PASSIVE_FOOTPRINT_SPILLAGE:
+        if passive and fp in PASSIVE_FOOTPRINT_SPILLAGE:
             return D(PASSIVE_FOOTPRINT_SPILLAGE[fp]), f"missing_price_passive_footprint_{fp}"
-        if category_is_basic_passive(part_category):
+        if passive:
             return D(5), "missing_price_passive_unknown_footprint_default_5"
         return D(5), "missing_price_non_passive_default_5"
 
@@ -136,7 +145,7 @@ def spillage_per_project(case_package: str, pricing_max, part_category: str = ""
         return D(1), "price_50_to_200"
     if price > 10:
         return D(2), "price_10_to_50"
-    return D(5), "price_under_10_or_unknown"
+    return D(5), "price_10_or_less"
 
 
 
@@ -324,10 +333,29 @@ def distribute_consumption_by_policy(project_details, actual_consumption):
         remaining -= planned_spillage_total
 
     # Phase 3: anything beyond all planned allowances is explicit exception.
-    for row in rows:
-        if remaining <= 0:
-            break
-        row["exception_consumed"] += remaining
+    # Distribute the approved exception evenly across selected Build Orders,
+    # using the same deterministic fair-share approach as planned spillage.
+    if remaining > 0 and rows:
+        build_order = []
+        for row in rows:
+            build = int(row.get("build", 0))
+            if build not in build_order:
+                build_order.append(build)
+
+        # Exception has no normal policy cap. Giving every BO a cap equal to
+        # the full exception quantity lets _fair_share_with_caps perform an
+        # even split while preserving deterministic remainder assignment.
+        exception_caps = {build: remaining for build in build_order}
+        by_build = _fair_share_with_caps(remaining, exception_caps, build_order)
+
+        for build in build_order:
+            left = by_build.get(build, D(0))
+            for row in rows:
+                if int(row.get("build", 0)) != build or left <= 0:
+                    continue
+                row["exception_consumed"] += left
+                left = D(0)
+
         remaining = D(0)
 
     for row in rows:
