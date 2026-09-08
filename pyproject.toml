@@ -4,20 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-assembly-stock-reconciliation"
-version = "0.5.3"
+version = "0.6.0"
 description = "InvenTree plugin for reconciling stock returned after external assembly"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Per Vices Corporation"}]
 classifiers = [
-  "Programming Language :: Python :: 3",
-  "Operating System :: OS Independent",
-  "Framework :: InvenTree",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Framework :: InvenTree",
 ]
 
 [project.entry-points.inventree_plugins]
-AssemblyStockReconciliationPlugin = "assembly_stock_reconciliation.plugin:AssemblyStockReconciliationPlugin"
+AssemblyStockReconciliationPlugin = "assembly_stock_reconciliation.plugin_v060:AssemblyStockReconciliationPlugin"
 
 [tool.setuptools]
 include-package-data = true
