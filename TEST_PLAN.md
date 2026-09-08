@@ -1,41 +1,40 @@
-# v0.6.4 Test Plan
+# v0.6.5 Test Plan
 
-## Primary regression: BO-0022 with multiple discrepant parts
+## BO-0022 final regression
 
-BO-0022 currently contains at least:
-- IC-Part-75: expected 50, consumed 53
-- IC-Part-25: expected 50, consumed 109
-
-Run:
+Export:
 
 `BO-0022 -> Consumed Stock -> Download -> Export Plugin`
 
-PASS criteria:
-- Report is generated; it must NOT show `REPORT NOT GENERATED`.
-- IC-Part-75 appears with its previously validated values:
-  - Expected Quantity 50
-  - Allowed Spillage 1
-  - Actual Consumed 53
-  - Total Over Nominal 3
-  - Unplanned Spillage 2
-  - Extended Cost 150 when unit price is 75
-- IC-Part-25 also appears if its consumption exceeds nominal plus its policy
-  allowance.
-- Any additional discrepant BuildLine in BO-0022 also appears.
-- There is no component-count or StockItem-count ceiling.
-- One blank row appears after the final discrepancy line.
-- TOTAL appears in Column A.
-- Extended Cost on the TOTAL row equals the sum of all discrepancy rows.
+Expected functional values remain unchanged.
 
-## Boundary regression: BO-0023
+IC-Part-25:
+- Expected Quantity: 50
+- Allowed Spillage: 2
+- Actual Consumed: 109
+- Unplanned Spillage: 57
+- Unit Price: `25.00`
+- Extended Cost: `1425.00`
 
-PASS criteria:
-- Export still works.
-- A build with no unplanned spillage produces
-  `TOTAL - No unplanned spillage` and cost 0.
+IC-Part-75:
+- Expected Quantity: 50
+- Allowed Spillage: 1
+- Actual Consumed: 53
+- Unplanned Spillage: 2
+- Unit Price: `75.00`
+- Extended Cost: `150.00`
 
-## Safety check
+Final presentation:
+- One blank row before TOTAL.
+- TOTAL in Column A.
+- Total Extended Cost: `1575.00`.
+- No long decimal strings such as `25.000000` or `1425.00000000000`.
 
-If the exporter is launched from a generic StockItem export that truly spans
-multiple Build Orders and no single Build Order can be resolved from context or
-query filters, it should still refuse to generate a mixed-BO report.
+## BO-0023 boundary regression
+
+Expected:
+- No exception component rows.
+- `TOTAL - No unplanned spillage` in Column A.
+- Extended Cost: `0.00`.
+
+No calculation behavior should differ from v0.6.4.
