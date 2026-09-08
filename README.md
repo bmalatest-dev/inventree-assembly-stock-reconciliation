@@ -1,53 +1,23 @@
 # InvenTree Assembly Stock Reconciliation
 
-Version 0.6.2.
+Version 0.6.3.
 
-## v0.6.2 — Supplier-Facing Spillage Report
+## v0.6.3 — Final Total Row Presentation
 
-v0.6.2 keeps the validated v0.6.1 native Consumed Stock exporter and polishes
-the exported report for sharing with an external assembly house.
+This release makes a small supplier-facing presentation improvement to the
+validated v0.6.2 Post Assembly Spillage Report.
 
-Changes:
+When unplanned-spillage component lines are present:
 
-- Replaces the internal Build Order column with **Assembly Part**, showing the
-  Part being built.
-- Separates **IPN** and **Part Name**.
-- Leaves IPN blank when a component has no IPN instead of exposing the internal
-  InvenTree Part database ID.
-- Removes the internal **Spillage Rule** and **Price Source** columns.
-- Retains only supplier-relevant quantity and cost information.
-- Keeps the final total unplanned-spillage cost row.
+1. One completely blank row is inserted after the last component line.
+2. `TOTAL` is placed in Column A (`Assembly Part`).
+3. The total unplanned-spillage cost remains in the final `Extended Cost`
+   column.
 
-The report columns are now:
+For a report with no unplanned spillage, the report contains:
 
-- Assembly Part
-- IPN
-- Part Name
-- Stock Item(s)
-- Expected Quantity
-- Allowed Spillage
-- Actual Consumed
-- Total Over Nominal
-- Unplanned Spillage
-- Unit Price
-- Extended Cost
+- `TOTAL - No unplanned spillage` in Column A
+- `0` in the Extended Cost column
 
-The calculation remains unchanged:
-
-```text
-Acceptable Consumption = Expected Quantity + Allowed Spillage
-
-Unplanned Spillage =
-max(Actual Consumed - Expected Quantity - Allowed Spillage, 0)
-
-Extended Cost =
-Unplanned Spillage x Unit Price
-```
-
-Only component lines with unplanned spillage greater than zero are included.
-A total row is always appended.
-
-## Existing functionality
-
-The validated reconciliation engine and v0.6.1 native InvenTree Data Export
-integration remain unchanged.
+All reconciliation, spillage-policy, pricing, and exception calculations remain
+unchanged from the previously validated versions.
