@@ -104,13 +104,12 @@ def _part_is_basic_passive(part, category_text="") -> bool:
 
 
 def _matching_consumed_stock(line, consumed_stock):
-    """Match consumed stock to a BuildLine by its normal BOM part.
+    """Find consumed StockItems which correspond to this BuildLine.
 
-    BuildLine.consumed is authoritative for quantity. These matches are used
-    for Stock Item references and price fallback only.
+    Exact part matching is used for report references and price fallback.
+    BuildLine.consumed remains authoritative for actual consumed quantity.
     """
-    part = line.part
-    part_id = getattr(part, "pk", None)
+    part_id = getattr(line.part, "pk", None)
 
     return [
         stock
@@ -120,10 +119,11 @@ def _matching_consumed_stock(line, consumed_stock):
 
 
 def _report_unit_price(part, matching_stock):
-    """Return unit price for the dollar-value report.
+    """Return report unit cost.
 
-    Prefer Part Pricing Max. If Part Pricing is absent, use the weighted
-    average purchase price of matching consumed Stock Items.
+    1. Part Pricing Max
+    2. Weighted-average consumed StockItem purchase price
+    3. Zero / missing-price fallback
     """
     part_price = _pricing_max(part)
 
@@ -156,7 +156,7 @@ def _report_unit_price(part, matching_stock):
 
 
 def _policy_for_line(part, matching_stock):
-    """Apply the same passive / footprint / price policy as reconciliation."""
+    """Apply the same spillage policy used by stock reconciliation."""
     category = _part_category_text(part)
     case_package = _case_package(part)
     part_price = _pricing_max(part)
@@ -283,7 +283,7 @@ def build_spillage_report(build_id: int) -> dict:
 
 
 def report_to_csv(report: dict) -> str:
-    """Render the report dictionary as CSV."""
+    """Retained for the v0.6.0 direct-download endpoint."""
     output = StringIO()
     writer = csv.writer(output)
 
@@ -314,10 +314,7 @@ def report_to_csv(report: dict) -> str:
             [
                 row["ipn"] or row["part"],
                 row["part_name"],
-                ", ".join(
-                    f"#{pk}"
-                    for pk in row["stock_items"]
-                ),
+                ", ".join(f"#{pk}" for pk in row["stock_items"]),
                 fmt_decimal(row["expected_quantity"]),
                 fmt_decimal(row["allowed_spillage"]),
                 fmt_decimal(row["actual_consumed"]),
@@ -337,14 +334,5 @@ def report_to_csv(report: dict) -> str:
             fmt_decimal(report["total_unplanned_spillage_cost"]),
         ]
     )
-
-    if not report["rows"]:
-        writer.writerow([])
-        writer.writerow(
-            [
-                "No consumption exceeded the nominal requirement plus "
-                "the approved spillage allowance."
-            ]
-        )
 
     return output.getvalue()

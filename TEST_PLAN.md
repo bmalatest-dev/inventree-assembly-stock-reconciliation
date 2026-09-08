@@ -1,16 +1,77 @@
-# v0.5.3 Test Plan
+# v0.6.1 Test Plan
 
-## Passive $0.50 priority rule
-Use a resistor with footprint 0402 and effective price exactly 0.50. Expected: Planned Spillage / BO = 20 and rule `passive_price_ge_0_50_cap_20`, not footprint_0402.
+## A. Registration / UI
 
-For a starting quantity of 500, nominal allocation 10 and physical return 470: nominal = 10, actual spillage = 20, max acceptable consumption = 30, exception = 0.
+1. Update the plugin through InvenTree.
+2. Confirm installed package version is 0.6.1.
+3. Fully restart the InvenTree Docker stack.
+4. Open a Build Order.
+5. Open `Consumed Stock`.
+6. Click the Download / Export button.
+7. Open the `Export Plugin` dropdown.
 
-## Multi-BO above-policy exception
-Two BOs with nominal allocations 50 and 10, spillage allowance 2 each, physical consumption 67. Expected: planned spillage 2 / 2 and exception distribution 2 / 1, for total consumption 54 / 13.
+PASS:
+- The Assembly Stock Reconciliation plugin is listed in addition to
+  `InvenTree Exporter`.
 
-## Policy-specific warning text
-- below_nominal: warning must explain nominal BO consumption plus positive inventory reconciliation add-back.
-- above_spillage_allowance: warning must explain consumption beyond nominal + permitted spillage and the additional exception allocation. It must not describe a higher-than-expected physical return.
+## B. No-exception Build Order
 
-## Regression
-Re-run normal nominal, within-spillage, below-nominal override, allocation review, multiple-stock-item warning, return-location recommendation, and prior tracking-note tests.
+Export a BO where all component consumption is <= expected + allowed spillage.
+
+PASS:
+- Export succeeds.
+- Only a TOTAL row is present.
+- Extended Cost total is 0.
+
+## C. Known IC-Part-75 exception
+
+Use a BO with:
+- expected = 10
+- allowed spillage = 1
+- actual consumed = 14
+- unit price = 75
+
+PASS:
+- total over nominal = 4
+- unplanned spillage = 3
+- extended cost = 225
+
+For the BO with:
+- expected = 50
+- allowed spillage = 1
+- actual consumed = 53
+
+PASS:
+- unplanned spillage = 2
+- extended cost = 150
+
+## D. Passive within allowance
+
+$0.50+ passive:
+- expected 10
+- allowed 20
+- actual 30
+
+PASS:
+- component row is omitted.
+
+## E. Passive above allowance
+
+Same passive:
+- expected 10
+- allowed 20
+- actual 31
+
+PASS:
+- component row is included.
+- unplanned spillage = 1.
+
+## F. Wrong Stock Item context
+
+Choose this exporter from a Stock Item table which is not scoped to exactly one
+consumed Build Order.
+
+PASS:
+- Export does not crash.
+- File instructs user to run the exporter from one Build Order's Consumed
+  Stock tab.
