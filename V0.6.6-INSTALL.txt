@@ -11,3 +11,5 @@ v0.6.6 keeps context and Preview on /api/action/. Only Commit is redirected to:
 
 The endpoint forces commit=True server-side and calls the existing _run() logic.
 Test on replica before production.
+
+MRO FIX: v0.6.6 now inherits only ReconciliationV065Plugin; UrlsMixin is already in the existing inheritance chain.

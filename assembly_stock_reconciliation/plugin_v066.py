@@ -3,10 +3,9 @@ import json
 from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 from django.urls import path
-from plugin.mixins import UrlsMixin
 from .plugin_v065 import AssemblyStockReconciliationPlugin as ReconciliationV065Plugin
 
-class AssemblyStockReconciliationPlugin(UrlsMixin, ReconciliationV065Plugin):
+class AssemblyStockReconciliationPlugin(ReconciliationV065Plugin):
     VERSION = "0.6.6"
 
     def setup_urls(self):
