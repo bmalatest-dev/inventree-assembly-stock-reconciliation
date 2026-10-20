@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError
 from build.models import Build, BuildItem
 from stock.models import StockItem, StockLocation
 
-from .plugin_v060 import D
+from decimal import Decimal as D
 from .plugin_v0611 import (
     AssemblyStockReconciliationPlugin as ReconciliationV0611Plugin,
 )
