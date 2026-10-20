@@ -1,16 +1,24 @@
-Assembly Stock Reconciliation v0.6.7 GitHub overlay
+Assembly Stock Reconciliation v0.6.8 DIAGNOSTIC overlay
 
-Extract this ZIP over the ROOT of the existing GitHub repository.
+Purpose:
+- Safely report the installed InvenTree Build.complete_allocations() signature.
+- Does not modify stock or build data when the diagnostic URL is opened.
+- Keeps the existing v0.6.7 commit behavior unchanged.
+
+Extract over the ROOT of the existing GitHub repository.
 
 Adds:
-- assembly_stock_reconciliation/plugin_v067.py
-- assembly_stock_reconciliation/static/assembly_stock_reconciliation_ui_v067.js
+  assembly_stock_reconciliation/plugin_v068.py
 
 Replaces:
-- pyproject.toml (version 0.6.7 and v067 entry point)
+  pyproject.toml
 
-Keep the existing plugin_v066.py and assembly_stock_reconciliation_ui_v053.js files.
-v0.6.7 intentionally builds on the v0.6.6 implementation that was tested successfully on the replica.
+After updating the plugin through the InvenTree UI, while logged in, open:
+  /plugin/assembly-stock-reconciliation/diagnostic/build-api/
 
-Recommended commit message:
-v0.6.7: production release of plugin commit endpoint
+Copy the JSON response back into ChatGPT.
+
+Do not test Commit Reconciliation on production while diagnosing the old API.
+
+Suggested commit message:
+v0.6.8: add safe Build API compatibility diagnostic
