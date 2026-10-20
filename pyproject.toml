@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-assembly-stock-reconciliation"
-version = "0.6.9"
+version = "0.6.10"
 description = "InvenTree plugin for reconciling stock returned after external assembly"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,7 +12,7 @@ license = {text = "MIT"}
 authors = [{name = "Per Vices Corporation"}]
 
 [project.entry-points.inventree_plugins]
-AssemblyStockReconciliationPlugin = "assembly_stock_reconciliation.plugin_v069:AssemblyStockReconciliationPlugin"
+AssemblyStockReconciliationPlugin = "assembly_stock_reconciliation.plugin_v0610:AssemblyStockReconciliationPlugin"
 
 [tool.setuptools]
 include-package-data = true
