@@ -1,0 +1,13 @@
+Assembly Stock Reconciliation v0.6.6 - PATCH PACKAGE
+
+Contains only files to add/replace on top of v0.6.5 main.
+
+REPLACE: pyproject.toml
+ADD: assembly_stock_reconciliation/plugin_v066.py
+ADD: assembly_stock_reconciliation/static/assembly_stock_reconciliation_ui_v066.js
+
+v0.6.6 keeps context and Preview on /api/action/. Only Commit is redirected to:
+/plugin/assembly-stock-reconciliation/commit/
+
+The endpoint forces commit=True server-side and calls the existing _run() logic.
+Test on replica before production.
